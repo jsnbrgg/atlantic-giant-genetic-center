@@ -315,7 +315,7 @@ st.markdown(
 st.sidebar.title("🧬 Navigation")
 nav_options = ["Home / Tree", "Progeny Search", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
 
-# Sidebar reflects current view_mode by index, no widget key writes
+# Sidebar reflects current view_mode by index (no widget-key writes)
 default_index = nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else 0
 choice = st.sidebar.radio("Go to", nav_options, index=default_index)
 
@@ -329,16 +329,16 @@ def render_top_nav():
     st.markdown('<div class="global-topnav">', unsafe_allow_html=True)
     b1, b2, b3, b4 = st.columns(4)
     with b1:
-        if st.button("🏠 Home / Tree", use_container_width=True):
+        if st.button("🏠 Home / Tree", use_container_width=True, key="nav_btn_home"):
             st.session_state.view_mode = "Home / Tree"; st.rerun()
     with b2:
-        if st.button("🔍 Progeny Search", use_container_width=True):
+        if st.button("🔍 Progeny Search", use_container_width=True, key="nav_btn_prog"):
             st.session_state.view_mode = "Progeny Search"; st.rerun()
     with b3:
-        if st.button("🏆 Top 50 Genetic", use_container_width=True):
+        if st.button("🏆 Top 50 Genetic", use_container_width=True, key="nav_btn_top50"):
             st.session_state.view_mode = "Top 50 Genetic Prediction"; st.rerun()
     with b4:
-        if st.button("🛡️ Top 50 Heavy", use_container_width=True):
+        if st.button("🛡️ Top 50 Heavy", use_container_width=True, key="nav_btn_heavy"):
             st.session_state.view_mode = "Top 50 Heavy Prediction"; st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
@@ -503,19 +503,79 @@ elif st.session_state.view_mode == "Home / Tree":
         html += "</div>"
         st.markdown(html, unsafe_allow_html=True)
 
-# ==================== PAGE: TOP 50 GENETIC PREDICTION ====================
+# ==================== PAGE: TOP 50 GENETIC PREDICTION (with sidebar controls) ====================
 elif st.session_state.view_mode == "Top 50 Genetic Prediction":
     st.title("Genetic Prediction")
     render_top_nav()
-    st.caption("This page computes the list independently to keep the Home page fast.")
+    st.caption("Tune the model inputs on the sidebar. Defaults match your current configuration.")
 
+    # === BASE: prepare data (unchanged canonicalization & sanity filter) ===
     df_fast = df_raw.copy()
     for col in ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]:
         df_fast[col] = df_fast[col].apply(denoise_text)
+    # Note: we keep HEAVY_SANITY_LIMIT/WORLD_RECORD_LIMIT defaults; allow override below
     df_fast["W_Num"] = pd.to_numeric(df_fast["Weight"], errors="coerce")
     df_fast["P_Num"] = pd.to_numeric(df_fast["Percent_Heavy"], errors="coerce").fillna(0)
-    df_fast = df_fast[(df_fast["W_Num"] < WORLD_RECORD_LIMIT) & (df_fast["P_Num"] <= HEAVY_SANITY_LIMIT)].copy()
 
+    # === SIDEBAR: model controls (professional, grouped & defaults to existing behavior) ===
+    st.sidebar.markdown("### ⚙️ Genetic Potential Options")
+
+    st.sidebar.markdown("#### Data & Filtering")
+    sr_world_record = st.sidebar.slider("World record limit (lbs)", 2500, 4000, int(WORLD_RECORD_LIMIT), step=50)
+    sr_heavy_limit = st.sidebar.slider("Max allowed % Heavy (sanity filter)", 0, 40, int(HEAVY_SANITY_LIMIT), step=1)
+    # Apply filters with chosen limits
+    df_fast = df_fast[(df_fast["W_Num"] < sr_world_record) & (df_fast["P_Num"] <= sr_heavy_limit)].copy()
+
+    st.sidebar.markdown("#### Offspring thresholds")
+    th_elite = st.sidebar.slider("Elite threshold (lbs)", 1500, 3000, 2000, step=50)
+    th_super = st.sidebar.slider("Super threshold (lbs)", 2000, 3200, 2500, step=50)
+    th_mega  = st.sidebar.slider("Mega threshold (lbs)", 2300, 3400, 2700, step=50)
+
+    st.sidebar.markdown("#### Weight normalization")
+    base_weight = st.sidebar.slider("Normalization base (lbs)", 2000, 3000, 2500, step=50)
+    clamp_min   = st.sidebar.slider("Min clamp", 0.3, 1.0, 0.6, 0.01)
+    clamp_max   = st.sidebar.slider("Max clamp", 1.0, 2.0, 1.4, 0.01)
+
+    st.sidebar.markdown("#### OTT normalization")
+    use_ott_norm = st.sidebar.checkbox("Use OTT normalization", value=True)
+    ott_min_ratio = st.sidebar.slider("OTT ratio lower clamp", 0.5, 1.0, 0.85, 0.01)
+    ott_max_ratio = st.sidebar.slider("OTT ratio upper clamp", 1.0, 1.8, 1.20, 0.01)
+
+    st.sidebar.markdown("#### Offspring power weights")
+    coef_mega  = st.sidebar.slider("Weight for Mega count (log1p * coef)", 0.00, 0.40, 0.18, 0.01)
+    coef_super = st.sidebar.slider("Weight for Super count (log1p * coef)", 0.00, 0.30, 0.12, 0.01)
+    coef_elite = st.sidebar.slider("Weight for Elite count (log1p * coef)", 0.00, 0.30, 0.10, 0.01)
+
+    st.sidebar.markdown("#### Heavy power")
+    use_heavy_power = st.sidebar.checkbox("Use heavy-rate influence", value=True)
+    coef_heavy_rate   = st.sidebar.slider("Weight for heavy_rate", 0.00, 0.20, 0.10, 0.01)
+    coef_heavy_count  = st.sidebar.slider("Weight for high heavy count", 0.00, 0.20, 0.06, 0.01)
+    coef_heavy_fallback = st.sidebar.slider("Fallback weight (no kids → heavy_rate)", 0.00, 0.20, 0.03, 0.01)
+
+    st.sidebar.markdown("#### PB power")
+    use_pb_power = st.sidebar.checkbox("Use PB influence", value=True)
+    coef_pb_kids = st.sidebar.slider("Weight for PB kids rate", 0.00, 0.20, 0.08, 0.01)
+    bonus_pb_flag = st.sidebar.slider("Bonus if seed is grower PB", 0.00, 0.20, 0.05, 0.01)
+
+    st.sidebar.markdown("#### Consistency & top-mean factors")
+    use_consistency = st.sidebar.checkbox("Use consistency factor (p75 heavy)", value=True)
+    coef_consistency = st.sidebar.slider("Gain per p75 (% / 100)", 0.00, 0.15, 0.06, 0.01)
+    use_top_mean = st.sidebar.checkbox("Use top-mean factor", value=True)
+    top_mean_max_gain = st.sidebar.slider("Max gain from top-mean", 0.00, 0.30, 0.12, 0.01)
+    top_mean_base = st.sidebar.slider("Top-mean base (lbs)", 2000, 3000, 2500, 50)
+
+    st.sidebar.markdown("#### Diversity & novelty")
+    use_diversity = st.sidebar.checkbox("Use diversity factor", value=True)
+    penalty_same = st.sidebar.slider("Penalty if same parent/grower", 0.80, 1.00, 0.95, 0.01)
+    bonus_diverse = st.sidebar.slider("Bonus if different parent/grower", 1.00, 1.20, 1.03, 0.01)
+    use_novelty = st.sidebar.checkbox("Use novelty factor (no kids yet)", value=True)
+    novelty_penalty = st.sidebar.slider("Novelty multiplier (no kids → penalty)", 0.80, 1.00, 0.92, 0.01)
+
+    st.sidebar.markdown("#### Display")
+    name_filter = st.sidebar.text_input("Filter by seed name (contains)", "")
+    top_n = st.sidebar.slider("Top N to show", 10, 100, 50, 5)
+
+    # === Derive helper sets (unchanged) ===
     df_fast["grower"] = df_fast["Pumpkin_Name"].apply(lambda s: get_seed_identity(s)[1])
     grower_pb_map = df_fast.groupby("grower")["W_Num"].max().to_dict()
     kid_pb_set = set()
@@ -532,6 +592,7 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
         progeny[m_pretty].append(row)
         progeny[f_pretty].append(row)
 
+    # OTT baseline
     ott_series = pd.to_numeric(df_fast["OTT"], errors="coerce")
     global_ott_med = float(ott_series.dropna().median()) if not ott_series.dropna().empty else 0.0
 
@@ -544,13 +605,14 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
         _, mg, _, mid, _ = get_seed_identity(m_name)
         _, fg, _, fid, _ = get_seed_identity(f_name)
         if mid == fid or mg == fg:
-            return 0.95
+            return penalty_same if use_diversity else 1.0
         if mg != fg and mid != fid and mg != "unknown" and fg != "unknown":
-            return 1.03
-        return 1.00
+            return bonus_diverse if use_diversity else 1.0
+        return 1.0
 
+    # === Advanced score using sidebar controls ===
     def advanced_score(seed_row: pd.Series) -> float:
-        name = seed_row["NAME"]
+        name = seed_row["NAME"]  # canonical pretty
         w = float(seed_row["_w"]) if pd.notnull(seed_row["_w"]) else 0.0
         heavy_seed = float(seed_row["_heavy"]) if pd.notnull(seed_row["_heavy"]) else 0.0
         ott_raw = seed_row["_ott"]
@@ -558,20 +620,30 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
             ott = float(ott_raw)
         except Exception:
             ott = np.nan
-        own_w_norm = np.clip(min(w, WORLD_RECORD_LIMIT) / 2500.0, 0.6, 1.4)
-        ott_norm = np.clip(ott / global_ott_med, 0.85, 1.20) if global_ott_med and not np.isnan(ott) else 1.0
-        heavy_norm = 1.0 + max(0.0, heavy_seed) / 100.0 * 0.40
+
+        # Base components (own traits)
+        own_w_norm = np.clip(min(w, sr_world_record) / float(base_weight), clamp_min, clamp_max)
+        if use_ott_norm and global_ott_med and not np.isnan(ott):
+            ott_norm = np.clip(ott / global_ott_med, ott_min_ratio, ott_max_ratio)
+        else:
+            ott_norm = 1.0
+        heavy_norm = 1.0 + max(0.0, heavy_seed) / 100.0 * 0.40  # keep original seed-heavy contribution
+
         pb_flag = 1.0 if is_pb_for_grower(name, w) else 0.0
 
+        # Offspring features
         kids = progeny.get(name, [])
         kcnt = len(kids)
+
         if kcnt:
             kids_w = np.array([float(pd.to_numeric(r["W_Num"], errors="coerce")) for r in kids], dtype=float)
             kids_p = np.array([float(pd.to_numeric(r["P_Num"], errors="coerce")) for r in kids], dtype=float)
             kids_w_clean = kids_w[~np.isnan(kids_w)]
-            c2000 = int(np.sum(kids_w_clean >= 2000))
-            c2500 = int(np.sum(kids_w_clean >= 2500))
-            c2700 = int(np.sum(kids_w_clean >= 2700))
+
+            c_elite = int(np.sum(kids_w_clean >= float(th_elite)))
+            c_super = int(np.sum(kids_w_clean >= float(th_super)))
+            c_mega  = int(np.sum(kids_w_clean >= float(th_mega)))
+
             heavy_rate = float(np.mean(kids_p > 0.0)) if kids_p.size > 0 else 0.0
             high_heavy_cnt = int(np.sum(kids_p >= 5.0))
             pb_kids = sum(1 for r in kids if r["Pumpkin_Name"] in kid_pb_set)
@@ -579,47 +651,80 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
             top_mean = float(np.mean(np.sort(kids_w_clean)[-3:])) if kids_w_clean.size > 0 else 0.0
             heavy_p75 = float(np.percentile(kids_p, 75)) if kids_p.size > 0 else heavy_seed
         else:
+            # Parent-based estimation when no kids yet
             _, _, _, _, m_pretty = get_seed_identity(seed_row["_m"])
             _, _, _, _, f_pretty = get_seed_identity(seed_row["_f"])
-            m_kids = progeny.get(m_pretty, []); f_kids = progeny.get(f_pretty, [])
+            m_kids = progeny.get(m_pretty, [])
+            f_kids = progeny.get(f_pretty, [])
             mf_rows = m_kids + f_kids
             if mf_rows:
                 mf_w = np.array([float(pd.to_numeric(r["W_Num"], errors="coerce")) for r in mf_rows], dtype=float)
                 mf_p = np.array([float(pd.to_numeric(r["P_Num"], errors="coerce")) for r in mf_rows], dtype=float)
                 mf_w_clean = mf_w[~np.isnan(mf_w)]
-                c2000 = int(np.sum(mf_w_clean >= 2000))
-                c2500 = int(np.sum(mf_w_clean >= 2500))
-                c2700 = int(np.sum(mf_w_clean >= 2700))
+                c_elite = int(np.sum(mf_w_clean >= float(th_elite)))
+                c_super = int(np.sum(mf_w_clean >= float(th_super)))
+                c_mega  = int(np.sum(mf_w_clean >= float(th_mega)))
                 heavy_rate = float(np.mean(mf_p > 0.0)) if mf_p.size > 0 else 0.0
                 high_heavy_cnt = int(np.sum(mf_p >= 5.0))
                 top_mean = float(np.mean(np.sort(mf_w_clean)[-3:])) if mf_w_clean.size > 0 else 0.0
                 heavy_p75 = float(np.percentile(mf_p, 75)) if mf_p.size > 0 else heavy_seed
             else:
-                c2000 = c2500 = c2700 = 0
+                c_elite = c_super = c_mega = 0
                 heavy_rate = 0.0
                 high_heavy_cnt = 0
                 top_mean = 0.0
                 heavy_p75 = heavy_seed
             kcnt = 0
 
-        div_factor = diversity_factor(seed_row["_m"], seed_row["_f"]) if seed_row["_m"] and seed_row["_f"] else 1.0
+        # Assemble factors
         score_base = own_w_norm * ott_norm * heavy_norm
-        offspring_power = 1.0 + 0.18*np.log1p(c2700) + 0.12*np.log1p(c2500) + 0.10*np.log1p(c2000)
-        heavy_power = 1.0 + 0.10*heavy_rate + (0.06*(high_heavy_cnt/max(1, kcnt)) if kcnt > 0 else 0.03*heavy_rate)
-        pb_power = 1.0 + (0.08*(pb_kids_rate) if kcnt > 0 else 0.0) + (0.05 if pb_flag > 0 else 0.0)
-        consistency = 1.0 + 0.06*(heavy_p75/100.0)
-        top_mean_factor = 1.0 + min(0.12, (top_mean/2500.0)*0.12)
-        novelty = 0.92 if kcnt == 0 else 1.0
+
+        offspring_power = 1.0 + coef_mega*np.log1p(c_mega) + coef_super*np.log1p(c_super) + coef_elite*np.log1p(c_elite)
+
+        if use_heavy_power:
+            heavy_power = 1.0 + coef_heavy_rate*heavy_rate + (
+                coef_heavy_count*(high_heavy_cnt/max(1, kcnt)) if kcnt > 0 else coef_heavy_fallback*heavy_rate
+            )
+        else:
+            heavy_power = 1.0
+
+        if use_pb_power:
+            pb_kids_rate = pb_kids_rate if kcnt > 0 else 0.0
+            pb_power = 1.0 + (coef_pb_kids*pb_kids_rate if kcnt > 0 else 0.0) + (bonus_pb_flag if pb_flag > 0 else 0.0)
+        else:
+            pb_power = 1.0
+
+        if use_consistency:
+            consistency = 1.0 + coef_consistency*(heavy_p75/100.0)
+        else:
+            consistency = 1.0
+
+        if use_top_mean:
+            top_mean_factor = 1.0 + min(top_mean_max_gain, (top_mean/float(top_mean_base))*top_mean_max_gain)
+        else:
+            top_mean_factor = 1.0
+
+        div_factor = diversity_factor(seed_row["_m"], seed_row["_f"]) if (seed_row["_m"] and seed_row["_f"]) else 1.0
+
+        novelty = (novelty_penalty if kcnt == 0 else 1.0) if use_novelty else 1.0
+
         return float(1000.0 * score_base * offspring_power * heavy_power * pb_power * consistency * top_mean_factor * div_factor * novelty)
 
+    # === Compute advanced score and render ===
     advanced = data.copy()
     advanced["GP_SCORE"] = advanced.apply(advanced_score, axis=1)
-    top50_adv = advanced.sort_values("GP_SCORE", ascending=False).head(50).copy()
-    top50_adv.insert(0, "RANK", [f"#{i+1}" for i in range(len(top50_adv))])
-    cols_50 = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
-    render_top50_table(top50_adv, cols_50, height_px=520)
 
-# ==================== PAGE: TOP 50 HEAVY PREDICTION ====================
+    # Optional name filter (contains)
+    if name_filter.strip():
+        advanced = advanced[advanced["NAME"].str.contains(name_filter.strip(), case=False, na=False)]
+
+    topN = advanced.sort_values("GP_SCORE", ascending=False).head(top_n).copy()
+    topN.insert(0, "RANK", [f"#{i+1}" for i in range(len(topN))])
+
+    cols_50 = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
+    render_top50_table(topN, cols_50, height_px=520)
+
+# ==================== PAGE: TOP 50 HEAVY PREDICTION (unchanged) ====================
 elif st.session_state.view_mode == "Top 50 Heavy Prediction":
     st.title("Heavy Prediction")
     render_top_nav()
