@@ -38,7 +38,7 @@ def logout():
     st.rerun()
 
 def login_view():
-    st.title("🔐 Sign in to Atlantic Giant Genetic Center")
+    st.title("🔐 Atlantic Giant Genetic Center")
     st.caption("Enter your username or email & password. Need access? Contact the site owner.")
 
     col1, col2 = st.columns([0.6, 0.4])
