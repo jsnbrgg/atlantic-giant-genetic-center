@@ -396,7 +396,7 @@ def render_top50_table(df: pd.DataFrame, columns: list[str], height_px: int = 42
 
 # ==================== PAGE: PROGENY SEARCH (stacked tables; Weight/Year_Grown removed) ====================
 if st.session_state.view_mode == "Progeny Search":
-    st.title("🔍 Progeny Search & View")
+    st.title("🔍 Progeny")
     render_top_nav()
 
     if st.button("✕ Clear Selection"):
