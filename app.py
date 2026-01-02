@@ -15,7 +15,8 @@ def verify_pbkdf2(password: str, stored: str) -> bool:
         salt = base64.b64decode(salt_b64.encode())
         actual = base64.b64decode(hash_b64.encode())
         test = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
-        return hashlib.compare_digest(test, actual)
+        import hmac
+        return hmac.compare_digest(test, actual)
     except Exception:
         return False
 
