@@ -112,7 +112,6 @@ import sqlite3
 import datetime
 import numpy as np
 import pandas as pd
-import streamlit as st
 from collections import defaultdict
 
 # ==================== PAGE CONFIG ====================
@@ -760,4 +759,3 @@ elif st.session_state.view_mode == "Top 50 Heavy Prediction":
     heavy_pred.insert(0, "RANK", [f"#{i+1}" for i in range(len(heavy_pred))])
     cols_hp = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
     render_top50_table(heavy_pred, cols_hp, height_px=520)
-``
