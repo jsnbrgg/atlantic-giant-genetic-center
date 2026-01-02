@@ -427,7 +427,7 @@ if st.session_state.view_mode == "Progeny Search":
 
 # ==================== PAGE: HOME / TREE (formerly Lineage Tree) ====================
 elif st.session_state.view_mode == "Home / Tree":
-    st.title("🌳 Genetic Lineage Tree")
+    st.title("🌳 Tree")
     render_top_nav()
 
     if st.button("✕ Clear Selection"):
