@@ -1,6 +1,6 @@
 
 # --- LOGIN GATE (multi-user; PBKDF2; Streamlit Secrets) ---
-import time, base64, hashlib
+import time, base64, hashlib, hmac
 import streamlit as st
 
 # Helper: verify PBKDF2-HMAC (sha256)
@@ -15,7 +15,6 @@ def verify_pbkdf2(password: str, stored: str) -> bool:
         salt = base64.b64decode(salt_b64.encode())
         actual = base64.b64decode(hash_b64.encode())
         test = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
-        import hmac
         return hmac.compare_digest(test, actual)
     except Exception:
         return False
@@ -38,8 +37,10 @@ def logout():
     st.rerun()
 
 def login_view():
+    # Updated title (removed "Sign in to")
     st.title("🔐 Atlantic Giant Genetic Center")
-    st.caption("Enter your username or email & password. Need access? Contact the site owner.")
+    # Optional: minimal caption (you can remove entirely if you want)
+    st.caption("Please enter your login details below.")
 
     col1, col2 = st.columns([0.6, 0.4])
     with col1:
@@ -473,6 +474,7 @@ elif st.session_state.view_mode == "Progeny Search":
     st.title("🔍 Progeny Search & View")
     if st.button("✕ Clear Selection"):
         st.session_state.selected_pumpkin = ""; st.rerun()
+
     selected = st.selectbox(
         "Select Seed to View Progeny (Largest first)",
         options=[""] + all_pumpkins,
@@ -480,23 +482,37 @@ elif st.session_state.view_mode == "Progeny Search":
         if st.session_state.selected_pumpkin in all_pumpkins else 0,
     )
     st.session_state.selected_pumpkin = selected
+
     if st.session_state.selected_pumpkin:
         _, _, _, tid, _ = get_seed_identity(st.session_state.selected_pumpkin)
         p = raw_seed_db.get(tid, {"m": "Unknown", "f": "Unknown"})
         st.subheader(f"Progeny of {st.session_state.selected_pumpkin}")
-        st.markdown(f"Mother Seed: {p['m']} \nFather Seed: {p['f']}", unsafe_allow_html=True)
+        st.markdown(f"Mother Seed: {p['m']}  \nFather Seed: {p['f']}", unsafe_allow_html=True)
+
         if st.button("→ View Lineage Tree"):
             st.session_state.view_mode = "Lineage Tree"; st.rerun()
-        cols_to_show = ["Pumpkin_Name", "Weight", "Year_Grown", "Mother_Seed", "Father_Seed"]
-        m_kids = df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Weight", ascending=False)
-        f_kids = df_raw[df_raw["Father_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Weight", ascending=False)
-        col_m, col_f = st.columns(2)
-        with col_m:
-            st.subheader("Offspring (Used as Mother)")
-            st.dataframe(m_kids, hide_index=True, use_container_width=True)
-        with col_f:
-            st.subheader("Offspring (Used as Pollinator)")
-            st.dataframe(f_kids, hide_index=True, use_container_width=True)
+
+        # --- Show only the desired columns; remove Weight and Year_Grown ---
+        cols_to_show = ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]
+
+        # Build data views (filters unchanged, columns trimmed)
+        m_kids = (
+            df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show]
+            .sort_values("Pumpkin_Name", ascending=True)
+        )
+        f_kids = (
+            df_raw[df_raw["Father_Seed"] == st.session_state.selected_pumpkin][cols_to_show]
+            .sort_values("Pumpkin_Name", ascending=True)
+        )
+
+        # --- Vertical layout: Mother table first, Pollinator table below ---
+        st.markdown("---")
+        st.subheader("Offspring (Used as Mother)")
+        st.dataframe(m_kids, hide_index=True, use_container_width=True)
+
+        st.markdown("---")
+        st.subheader("Offspring (Used as Pollinator)")
+        st.dataframe(f_kids, hide_index=True, use_container_width=True)
 
 # ==================== PAGE: LINEAGE TREE ====================
 elif st.session_state.view_mode == "Lineage Tree":
