@@ -269,7 +269,7 @@ if "selected_pumpkin" not in st.session_state:
 if "search_key" not in st.session_state:
     st.session_state.search_key = ""
 
-# ==================== GLOBAL CSS (unchanged look; add horizontal scroll for wide tables) ====================
+# ==================== GLOBAL CSS (unchanged look; horizontal scroll for wide tables) ====================
 st.markdown(
     """
     <style>
@@ -284,7 +284,7 @@ st.markdown(
     .tree-node .line { margin-bottom: 2px; }
     .tree-connector { position: absolute; height: 2px; background: rgba(0,0,0,0.2); }
 
-    /* Generic table wrapper — add horizontal scroll for phone screens */
+    /* Generic table wrapper — horizontal scroll on phones */
     .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
                 background: rgba(255,255,255,0.04); overflow-x: auto; overflow-y: hidden; }
 
@@ -302,7 +302,7 @@ st.markdown(
     .tbl.top50 tbody tr:nth-child(even) { background: rgba(255,255,255,0.06); }
     .tbl.top50 tbody tr:hover { background: rgba(255,255,255,0.11); }
 
-    /* Top nav buttons for all pages (mobile-friendly) */
+    /* Top nav buttons for all pages */
     .global-topnav .stButton > button {
       height: 40px; border-radius: 8px; font-weight: 700;
     }
@@ -311,17 +311,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ==================== SIDEBAR NAV (one-click, Home / Tree first) ====================
+# ==================== SIDEBAR NAV (Home / Tree first; one-click) ====================
 st.sidebar.title("🧬 Navigation")
 nav_options = ["Home / Tree", "Progeny Search", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
 
-# Persist the radio selection explicitly
-if "nav_radio" not in st.session_state:
-    st.session_state.nav_radio = "Home / Tree"
+# Sidebar reflects current view_mode by index, no widget key writes
+default_index = nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else 0
+choice = st.sidebar.radio("Go to", nav_options, index=default_index)
 
-choice = st.sidebar.radio("Go to", nav_options, index=nav_options.index(st.session_state.nav_radio), key="nav_radio")
-
-# One-click behavior: update view_mode and rerun
+# One-click behavior: update and rerun if changed
 if choice != st.session_state.view_mode:
     st.session_state.view_mode = choice
     st.rerun()
@@ -331,25 +329,17 @@ def render_top_nav():
     st.markdown('<div class="global-topnav">', unsafe_allow_html=True)
     b1, b2, b3, b4 = st.columns(4)
     with b1:
-        if st.button("🏠 Home / Tree", use_container_width=True, key="topnav_home"):
-            st.session_state.view_mode = "Home / Tree"
-            st.session_state.nav_radio = "Home / Tree"   # <-- sync sidebar
-            st.rerun()
+        if st.button("🏠 Home / Tree", use_container_width=True):
+            st.session_state.view_mode = "Home / Tree"; st.rerun()
     with b2:
-        if st.button("🔍 Progeny Search", use_container_width=True, key="topnav_prog"):
-            st.session_state.view_mode = "Progeny Search"
-            st.session_state.nav_radio = "Progeny Search"  # <-- sync sidebar
-            st.rerun()
+        if st.button("🔍 Progeny Search", use_container_width=True):
+            st.session_state.view_mode = "Progeny Search"; st.rerun()
     with b3:
-        if st.button("🏆 Top 50 Genetic", use_container_width=True, key="topnav_top50"):
-            st.session_state.view_mode = "Top 50 Genetic Prediction"
-            st.session_state.nav_radio = "Top 50 Genetic Prediction"  # <-- sync sidebar
-            st.rerun()
+        if st.button("🏆 Top 50 Genetic", use_container_width=True):
+            st.session_state.view_mode = "Top 50 Genetic Prediction"; st.rerun()
     with b4:
-        if st.button("🛡️ Top 50 Heavy", use_container_width=True, key="topnav_heavy"):
-            st.session_state.view_mode = "Top 50 Heavy Prediction"
-            st.session_state.nav_radio = "Top 50 Heavy Prediction"  # <-- sync sidebar
-            st.rerun()
+        if st.button("🛡️ Top 50 Heavy", use_container_width=True):
+            st.session_state.view_mode = "Top 50 Heavy Prediction"; st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
 
@@ -424,9 +414,7 @@ if st.session_state.view_mode == "Progeny Search":
         st.subheader(f"Progeny of {st.session_state.selected_pumpkin}")
         st.markdown(f"Mother Seed: {p['m']} \nFather Seed: {p['f']}", unsafe_allow_html=True)
         if st.button("→ View Lineage Tree"):
-            st.session_state.view_mode = "Home / Tree"
-            st.session_state.nav_radio = "Home / Tree"  # sync sidebar
-            st.rerun()
+            st.session_state.view_mode = "Home / Tree"; st.rerun()
         cols_to_show = ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]
         m_kids = df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Pumpkin_Name", ascending=True)
         f_kids = df_raw[df_raw["Father_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Pumpkin_Name", ascending=True)
@@ -472,9 +460,7 @@ elif st.session_state.view_mode == "Home / Tree":
     if st.session_state.selected_pumpkin:
         st.subheader(f"Pedigree: {st.session_state.selected_pumpkin}")
         if st.button("👥 View Progeny"):
-            st.session_state.view_mode = "Progeny Search"
-            st.session_state.nav_radio = "Progeny Search"  # sync sidebar
-            st.rerun()
+            st.session_state.view_mode = "Progeny Search"; st.rerun()
 
         nodes = []
         def build(name, x, y, step_y, gen, type_label):
