@@ -135,7 +135,6 @@ NAME_REPLACEMENTS = {
     "mendi_2618": "2618 Mendi 2025",
 }
 # Canonical grower synonyms (aliases -> canonical)
-# Ensures "2618 Annabelruben 2025" == "2618 Mendi 2025"
 GROWER_SYNONYMS = {
     "annabelruben": "mendi",
     "annabelrubin": "mendi",
@@ -143,10 +142,9 @@ GROWER_SYNONYMS = {
     "annabelle": "mendi",
     "annabel-ruben": "mendi",
     "annabel_ruben": "mendi",
-    # In case punctuation/space removal produces trailing year in token:
     "annabelruben2025": "mendi",
 }
-# Tokens to strip anywhere in names (both inside/outside parentheses)
+# Tokens to strip anywhere in names
 NOISE_TOKENS = [
     r"dmg", r"damaged", r"damage",
     r"adj", r"uow", r"est", r"est\.", r"clone", r"sibb", r"sib",
@@ -155,8 +153,6 @@ NOISE_TOKENS = [
 def denoise_text(raw: str) -> str:
     """
     Remove nuisance tokens, collapse whitespace, and normalize number+letter weight suffixes.
-    - Strips 2144A/2144B -> 2144 prior to parsing
-    - Strips DMG/ADJ/UOW/EST/CLONE/SIBB anywhere (even concatenated)
     """
     s = str(raw)
     # Strip number+single-letter suffix immediately after weight (e.g., 2144A -> 2144)
@@ -164,7 +160,7 @@ def denoise_text(raw: str) -> str:
     # Remove common nuisance tokens
     for tok in NOISE_TOKENS:
         s = re.sub(rf"(?i)\b{tok}\b", "", s)
-        s = re.sub(rf"(?i){tok}", "", s)  # also remove if concatenated (e.g., Patondmg)
+        s = re.sub(rf"(?i){tok}", "", s)  # also remove if concatenated
     # Remove stray punctuation, keep word chars, spaces, dot, dash
     s = re.sub(r"[^\w\s\.\-]", " ", s)
     s = re.sub(r"\s+", " ", s).strip()
@@ -174,10 +170,6 @@ def denoise_text(raw: str) -> str:
 def get_seed_identity(s: str):
     """
     Normalize a 'seed' string into (weight, grower, year, id_base, pretty).
-    - Strips nuisance tokens anywhere (DMG, ADJ, UOW, EST, CLONE, SIBB).
-    - Normalizes number+letter weight suffixes (2144A -> 2144).
-    - Canonicalizes grower via synonyms (e.g., Annabelruben -> Mendi).
-    - Uses NAME_REPLACEMENTS to map canonical id_base -> pretty.
     """
     raw = str(s).strip()
     if not raw or raw.lower() in ["nan", "open", "unknown", ""]:
@@ -197,15 +189,15 @@ def get_seed_identity(s: str):
     # Strip residual nuisance suffixes (defensive)
     grower = re.sub(r"(dmg|damaged|damage|adj|uow|est|clone|sibb|sib)$", "", grower)
     grower = re.sub(r"(dmg|damaged|damage|adj|uow|est|clone|sibb|sib)", "", grower)
-    # Canonicalize via synonyms (cover common variants)
+    # Canonicalize via synonyms
     grower = GROWER_SYNONYMS.get(grower, grower)
     id_base = f"{grower}_{int(weight)}"
-    # Preferred pretty mapping (NAME_REPLACEMENTS)
+    # Preferred pretty mapping
     pretty = NAME_REPLACEMENTS.get(
         id_base,
         f"{weight if weight % 1 != 0 else int(weight)} {grower.capitalize()} {year}",
     )
-    # Defensive: force 2618 Mendi 2025 pretty if the identity matches
+    # Defensive pretty name
     if int(weight) == 2618 and grower == "mendi" and year == 2025:
         pretty = "2618 Mendi 2025"
     return weight, grower, year, id_base, pretty
@@ -219,15 +211,16 @@ def load_and_analyze():
         conn,
     )
     conn.close()
-    # Denoise name fields for consistent matching later
+    # Denoise name fields
     for col in ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]:
         df[col] = df[col].apply(denoise_text)
     df["W_Num"] = pd.to_numeric(df["Weight"], errors="coerce")
     df["P_Num"] = pd.to_numeric(df["Percent_Heavy"], errors="coerce").fillna(0)
     # Filter unrealistic % Heavy > 25%
     df_clean = df[(df["W_Num"] < WORLD_RECORD_LIMIT) & (df["P_Num"] <= HEAVY_SANITY_LIMIT)].copy()
+
     seed_db, progeny_map = {}, {}
-    # Build seed database + progeny mapping (canonical parents)
+    # Build seed database + progeny mapping
     for idx, row in df_clean.iterrows():
         w, _, _, id_key, pretty = get_seed_identity(row["Pumpkin_Name"])
         if id_key == "unknown_0":
@@ -244,8 +237,12 @@ def load_and_analyze():
         for p_raw in [row["Mother_Seed"], row["Father_Seed"]]:
             _, _, _, p_id, _ = get_seed_identity(p_raw)
             if p_id != "unknown_0":
-                progeny_map.setdefault(p_id, []).append({"w": df_clean.at[idx, "W_Num"], "p": df_clean.at[idx, "P_Num"]})
-    # Compute base metrics (used by other pages)
+                progeny_map.setdefault(p_id, []).append({
+                    "w": df_clean.at[idx, "W_Num"],
+                    "p": df_clean.at[idx, "P_Num"]
+                })
+
+    # Compute base metrics
     results = []
     for id_key, data_point in seed_db.items():
         kids = progeny_map.get(id_key, [])
@@ -259,8 +256,7 @@ def load_and_analyze():
         )
         heavy_p = (
             np.percentile([k["p"] for k in kids if k["w"] >= 2000], 75)
-            if elite
-            else data_point["p"]
+            if elite else data_point["p"]
         )
         score = (p_base * bonus) * (1 + (heavy_p / 100))
         max_v = max([k["w"] for k in kids] + [data_point["w"]]) if kids else data_point["w"]
@@ -291,15 +287,15 @@ def load_and_analyze():
 # ==================== APP INIT ====================
 data, all_pumpkins, raw_seed_db, df_raw = load_and_analyze()
 
-# ✅ Default the site to "Lineage Tree" (Home page removed)
+# Default landing page: Home / Tree (formerly Lineage Tree)
 if "view_mode" not in st.session_state:
-    st.session_state.view_mode = "Lineage Tree"
+    st.session_state.view_mode = "Home / Tree"
 if "selected_pumpkin" not in st.session_state:
     st.session_state.selected_pumpkin = ""
 if "search_key" not in st.session_state:
     st.session_state.search_key = ""
 
-# ==================== GLOBAL CSS (restored to previous, no Home-specific changes) ====================
+# ==================== GLOBAL CSS (unchanged look; add horizontal scroll for wide tables) ====================
 st.markdown(
     """
     <style>
@@ -314,10 +310,11 @@ st.markdown(
     .tree-node .line { margin-bottom: 2px; }
     .tree-connector { position: absolute; height: 2px; background: rgba(0,0,0,0.2); }
 
-    /* Generic table wrapper */
-    .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); overflow: hidden; }
+    /* Generic table wrapper — add horizontal scroll for phone screens */
+    .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
+                background: rgba(255,255,255,0.04); overflow-x: auto; overflow-y: hidden; }
 
-    /* Top-50 visual layout */
+    /* Top-50 visual layout (unchanged) */
     .tbl.top50 thead th {
       position: sticky; top: 0; z-index: 2; text-align: left; padding: 8px 12px;
       background: #1f1f1f; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.18);
@@ -330,19 +327,46 @@ st.markdown(
     .tbl.top50 tbody tr:nth-child(odd) { background: rgba(255,255,255,0.03); }
     .tbl.top50 tbody tr:nth-child(even) { background: rgba(255,255,255,0.06); }
     .tbl.top50 tbody tr:hover { background: rgba(255,255,255,0.11); }
+
+    /* Top nav buttons for all pages (mobile-friendly) */
+    .global-topnav .stButton > button {
+      height: 40px; border-radius: 8px; font-weight: 700;
+    }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# ==================== SIDEBAR NAV (Home page removed; default is Lineage Tree) ====================
+# ==================== SIDEBAR NAV (one-click, Home / Tree first) ====================
 st.sidebar.title("🧬 Navigation")
-nav_options = ["Progeny Search", "Lineage Tree", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
-st.session_state.view_mode = st.sidebar.radio(
-    "Go to",
-    nav_options,
-    index=nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else nav_options.index("Lineage Tree"),
-)
+nav_options = ["Home / Tree", "Progeny Search", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
+
+default_index = nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else 0
+choice = st.sidebar.radio("Go to", nav_options, index=default_index, key="nav_radio")
+
+# One-click behavior: update and rerun immediately if changed
+if choice != st.session_state.view_mode:
+    st.session_state.view_mode = choice
+    st.experimental_rerun()
+
+# ==================== TOP NAV BAR (buttons across the top, on every page) ====================
+def render_top_nav():
+    st.markdown('<div class="global-topnav">', unsafe_allow_html=True)
+    b1, b2, b3, b4 = st.columns(4)
+    with b1:
+        if st.button("🏠 Home / Tree", use_container_width=True, key="topnav_home"):
+            st.session_state.view_mode = "Home / Tree"; st.experimental_rerun()
+    with b2:
+        if st.button("🔍 Progeny Search", use_container_width=True, key="topnav_prog"):
+            st.session_state.view_mode = "Progeny Search"; st.experimental_rerun()
+    with b3:
+        if st.button("🏆 Top 50 Genetic", use_container_width=True, key="topnav_top50"):
+            st.session_state.view_mode = "Top 50 Genetic Prediction"; st.experimental_rerun()
+    with b4:
+        if st.button("🛡️ Top 50 Heavy", use_container_width=True, key="topnav_heavy"):
+            st.session_state.view_mode = "Top 50 Heavy Prediction"; st.experimental_rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("---")
 
 # ---------- Helper: generic table (scroll viewport; used by other pages) ----------
 def render_pretty_table(df: pd.DataFrame, columns: list[str], height_px: int = 420, table_class: str = ""):
@@ -354,7 +378,7 @@ def render_pretty_table(df: pd.DataFrame, columns: list[str], height_px: int = 4
         rows_html.append(f"<tr>{cells}</tr>")
     tbody = "<tbody>" + "".join(rows_html) + "</tbody>"
     html = f"""
-    <div class="tbl-wrap" style="max-height:{height_px}px; overflow-y:auto;">
+    <div class="tbl-wrap" style="max-height:{height_px}px;">
       <table class="tbl {table_class}">
         {thead}
         {tbody}
@@ -386,9 +410,9 @@ def render_top50_table(df: pd.DataFrame, columns: list[str], height_px: int = 42
         cells = "".join(f"<td>{row[col]}</td>" for col in view.columns)
         rows_html.append(f"<tr>{cells}</tr>")
     tbody = "<tbody>" + "".join(rows_html) + "</tbody>"
-    # Full height: no max-height and no overflow scroll; header stays sticky at page top
+    # Full height; add horizontal scroll via wrapper
     html = f"""
-    <div class="tbl-wrap" style="max-height:none; overflow-y:visible;">
+    <div class="tbl-wrap" style="max-height:none;">
       <table class="tbl top50">
         {thead}
         {tbody}
@@ -400,6 +424,8 @@ def render_top50_table(df: pd.DataFrame, columns: list[str], height_px: int = 42
 # ==================== PAGE: PROGENY SEARCH (stacked tables; Weight/Year_Grown removed) ====================
 if st.session_state.view_mode == "Progeny Search":
     st.title("🔍 Progeny Search & View")
+    render_top_nav()
+
     if st.button("✕ Clear Selection"):
         st.session_state.selected_pumpkin = ""; st.rerun()
     selected = st.selectbox(
@@ -415,7 +441,7 @@ if st.session_state.view_mode == "Progeny Search":
         st.subheader(f"Progeny of {st.session_state.selected_pumpkin}")
         st.markdown(f"Mother Seed: {p['m']} \nFather Seed: {p['f']}", unsafe_allow_html=True)
         if st.button("→ View Lineage Tree"):
-            st.session_state.view_mode = "Lineage Tree"; st.rerun()
+            st.session_state.view_mode = "Home / Tree"; st.rerun()
         # Show only desired columns; remove Weight and Year_Grown
         cols_to_show = ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]
         m_kids = df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Pumpkin_Name", ascending=True)
@@ -427,9 +453,11 @@ if st.session_state.view_mode == "Progeny Search":
         st.subheader("Offspring (Used as Pollinator)")
         st.dataframe(f_kids, hide_index=True, use_container_width=True)
 
-# ==================== PAGE: LINEAGE TREE (default landing page) ====================
-elif st.session_state.view_mode == "Lineage Tree":
+# ==================== PAGE: HOME / TREE (formerly Lineage Tree) ====================
+elif st.session_state.view_mode == "Home / Tree":
     st.title("🌳 Genetic Lineage Tree")
+    render_top_nav()
+
     if st.button("✕ Clear Selection"):
         st.session_state.selected_pumpkin = ""; st.rerun()
     selected = st.selectbox(
@@ -503,9 +531,10 @@ elif st.session_state.view_mode == "Lineage Tree":
         html += "</div>"
         st.markdown(html, unsafe_allow_html=True)
 
-# ==================== PAGE: TOP 50 GENETIC PREDICTION (FULL HEIGHT TABLE) ====================
+# ==================== PAGE: TOP 50 GENETIC PREDICTION ====================
 elif st.session_state.view_mode == "Top 50 Genetic Prediction":
     st.title("🏆 Top 50 Genetic Prediction (Genetic Potential)")
+    render_top_nav()
     st.caption("This page computes the list independently to keep the Home page fast.")
 
     # === SPEED & CANONICALIZATION ===
@@ -625,25 +654,25 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
     advanced["GP_SCORE"] = advanced.apply(advanced_score, axis=1)
     top50_adv = advanced.sort_values("GP_SCORE", ascending=False).head(50).copy()
     top50_adv.insert(0, "RANK", [f"#{i+1}" for i in range(len(top50_adv))])
-    # Custom header, solid background, 3 lines — FULL HEIGHT
     cols_50 = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
     render_top50_table(top50_adv, cols_50, height_px=520)
 
-# ==================== PAGE: TOP 50 HEAVY PREDICTION (FULL HEIGHT + FALLBACK FILL) ====================
+# ==================== PAGE: TOP 50 HEAVY PREDICTION ====================
 elif st.session_state.view_mode == "Top 50 Heavy Prediction":
     st.title("🛡️ Top 50 Heavy Prediction")
+    render_top_nav()
     st.caption("Strongest seeds by conservative floor (MIN FLOOR). If fewer than 50 meet the MAX FLOOR threshold, we top up with the next best MIN FLOOR. Table uses the Top-50 visual layout and full height.")
     # 1) Apply your threshold first (unchanged logic)
     qualified = data[data["MAX FLOOR"] >= MIN_FLOOR_QUALIFIER_CEILING].copy()
-    qualified = qualified.sort_values("MIN FLOOR", ascending=False)  # sort descending by MIN FLOOR
-    # 2) Fallback fill to ensure 50 rows (TOP UP from the remaining seeds by MIN FLOOR)
+    qualified = qualified.sort_values("MIN FLOOR", ascending=False)
+    # 2) Fallback fill to ensure 50 rows
     if len(qualified) < 50:
         remainder = data[~data.index.isin(qualified.index)].copy()
         remainder = remainder.sort_values("MIN FLOOR", ascending=False)
         heavy_pred = pd.concat([qualified, remainder.head(50 - len(qualified))], ignore_index=True)
     else:
         heavy_pred = qualified.head(50).copy()
-    # 3) Rank and render — SAME VISUAL LAYOUT (3-line headers, alternating rows), FULL HEIGHT
+    # 3) Rank and render
     heavy_pred.insert(0, "RANK", [f"#{i+1}" for i in range(len(heavy_pred))])
     cols_hp = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
     render_top50_table(heavy_pred, cols_hp, height_px=520)
