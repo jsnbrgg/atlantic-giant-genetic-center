@@ -112,6 +112,7 @@ import sqlite3
 import datetime
 import numpy as np
 import pandas as pd
+import streamlit as st
 from collections import defaultdict
 
 # ==================== PAGE CONFIG ====================
@@ -173,6 +174,10 @@ def denoise_text(raw: str) -> str:
 def get_seed_identity(s: str):
     """
     Normalize a 'seed' string into (weight, grower, year, id_base, pretty).
+    - Strips nuisance tokens anywhere (DMG, ADJ, UOW, EST, CLONE, SIBB).
+    - Normalizes number+letter weight suffixes (2144A -> 2144).
+    - Canonicalizes grower via synonyms (e.g., Annabelruben -> Mendi).
+    - Uses NAME_REPLACEMENTS to map canonical id_base -> pretty.
     """
     raw = str(s).strip()
     if not raw or raw.lower() in ["nan", "open", "unknown", ""]:
@@ -286,58 +291,22 @@ def load_and_analyze():
 # ==================== APP INIT ====================
 data, all_pumpkins, raw_seed_db, df_raw = load_and_analyze()
 
+# ✅ Default the site to "Lineage Tree" (Home page removed)
 if "view_mode" not in st.session_state:
-    st.session_state.view_mode = "Search & Home"
+    st.session_state.view_mode = "Lineage Tree"
+if "selected_pumpkin" not in st.session_state:
+    st.session_state.selected_pumpkin = ""
+if "search_key" not in st.session_state:
+    st.session_state.search_key = ""
 
-# ✅ One-time default on first visit only
-if "home_initialized" not in st.session_state:
-    st.session_state.selected_pumpkin = "2365 Wolf 2021" if "2365 Wolf 2021" in all_pumpkins else ""
-    st.session_state.home_initialized = True
-
-# home page local state
-if "home_query" not in st.session_state:
-    st.session_state.home_query = ""
-if "home_select" not in st.session_state:
-    st.session_state.home_select = st.session_state.selected_pumpkin
-
-# ==================== GLOBAL CSS ====================
+# ==================== GLOBAL CSS (restored to previous, no Home-specific changes) ====================
 st.markdown(
     """
     <style>
     .dataframe th, .dataframe td { padding: 6px 8px; }
     .dataframe thead th { background: #f5f5f5; }
 
-    /* --- HOME styles --- */
-    .home-hero { background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px; padding: 12px 16px; }
-    .home-hero h3 { margin: 6px 0 8px 0; color: #4e342e; }
-    .home-hero .desc { color: #5d4037; font-weight: 600; font-size: 0.95rem; }
-
-    .home-row { margin-top: 10px; margin-bottom: 8px; }
-    .home-clear .stButton > button {
-      background: #2b2b2b; color: #ff4242; border: 1px solid #ff4242;
-      border-radius: 8px; height: 40px; width: 40px; font-size: 20px;
-      display: inline-flex; align-items: center; justify-content: center;
-      padding: 0; margin: 0;
-    }
-    .home-input .stTextInput > div > input {
-      height: 40px; border: 1px solid #bdbdbd; border-radius: 8px;
-    }
-    .home-go .stButton > button {
-      height: 40px; border-radius: 8px; background: #c8e6c9; color: #1b5e20;
-      border: 1px solid #a5d6a7; font-weight: 700;
-    }
-
-    /* Top 10 table styling */
-    .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(0,0,0,0.15); background: #fff; overflow: hidden; }
-    .tbl.home-top10 thead th {
-      text-align: left; padding: 8px 12px; background: #ffecb3; color: #2e2e2e;
-      border-bottom: 2px solid #fbc02d; font-weight: 800;
-    }
-    .tbl.home-top10 tbody td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
-    .tbl.home-top10 tbody tr:nth-child(odd) { background: #fafafa; }
-    .tbl.home-top10 tbody tr:hover { background: #f0f4c3; }
-
-    /* Tree, chips, etc. (existing styles kept for other pages) */
+    /* Tree container and nodes */
     .tree-container { position: relative; border-radius: 8px; background: transparent; overflow: visible; }
     .tree-node { position: absolute; border-radius: 8px; padding: 8px 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); background: #ffffff; border: 1px solid #e5e5e5; color: #222; display: flex; flex-direction: column; justify-content: center; }
     .tree-node .label { font-weight: 600; opacity: 0.8; margin-bottom: 4px; }
@@ -345,23 +314,18 @@ st.markdown(
     .tree-node .line { margin-bottom: 2px; }
     .tree-connector { position: absolute; height: 2px; background: rgba(0,0,0,0.2); }
 
-    .info-card { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); border-radius: 12px; padding: 14px 16px; margin-top: 10px; }
-    .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: start; }
-    .metric { font-weight: 600; margin: 2px 0; }
-    .muted { opacity: 0.9; }
-    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; font-weight: 600; margin: 2px 8px 2px 0; }
-    .chip .tag { font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; color: #111; }
-    .chip.mother { background: rgba(255, 213, 79, 0.20); color: #ffea00; }
-    .chip.mother .tag { background: #ffd54f; }
-    .chip.father { background: rgba(79, 195, 247, 0.20); color: #80d8ff; }
-    .chip.father .tag { background: #4fc3f7; }
+    /* Generic table wrapper */
+    .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); overflow: hidden; }
 
-    /* Top-50 table (existing) */
+    /* Top-50 visual layout */
     .tbl.top50 thead th {
       position: sticky; top: 0; z-index: 2; text-align: left; padding: 8px 12px;
       background: #1f1f1f; color: #fff; border-bottom: 1px solid rgba(255,255,255,0.18);
       font-weight: 800; letter-spacing: 0.02em;
     }
+    .tbl.top50 thead th .hl1 { font-size: 0.95rem; font-weight: 800; }
+    .tbl.top50 thead th .hl2 { font-size: 0.80rem; opacity: 0.95; }
+    .tbl.top50 thead th .hl3 { font-size: 0.78rem; opacity: 0.85; }
     .tbl.top50 tbody td { text-align: left; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.08); }
     .tbl.top50 tbody tr:nth-child(odd) { background: rgba(255,255,255,0.03); }
     .tbl.top50 tbody tr:nth-child(even) { background: rgba(255,255,255,0.06); }
@@ -371,14 +335,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ==================== SIDEBAR NAV ====================
+# ==================== SIDEBAR NAV (Home page removed; default is Lineage Tree) ====================
 st.sidebar.title("🧬 Navigation")
+nav_options = ["Progeny Search", "Lineage Tree", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
 st.session_state.view_mode = st.sidebar.radio(
     "Go to",
-    ["Search & Home", "Progeny Search", "Lineage Tree", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"],
-    index=["Search & Home", "Progeny Search", "Lineage Tree", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"].index(st.session_state.view_mode)
-    if st.session_state.view_mode in ["Search & Home", "Progeny Search", "Lineage Tree", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
-    else 0,
+    nav_options,
+    index=nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else nav_options.index("Lineage Tree"),
 )
 
 # ---------- Helper: generic table (scroll viewport; used by other pages) ----------
@@ -434,145 +397,11 @@ def render_top50_table(df: pd.DataFrame, columns: list[str], height_px: int = 42
     """
     st.markdown(html, unsafe_allow_html=True)
 
-# ==================== PAGE: SEARCH & HOME (REDESIGNED) ====================
-if st.session_state.view_mode == "Search & Home":
-    st.title("🎃 Atlantic Giant Genetic Center")
-
-    # Hero card (similar to screenshot header + short description)
-    st.markdown(
-        """
-        <div class="home-hero">
-          <h3>Pumpkin Genetics and Statistics</h3>
-          <div class="desc">
-            Type at least 3 digits of the weight, or letters of the grower last name. Select from the list.
-          </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # Action buttons row (unchanged functionality)
-    nav1, nav2 = st.columns(2)
-    with nav1:
-        if st.button("🔍 Open Progeny Search", use_container_width=True):
-            st.session_state.view_mode = "Progeny Search"; st.rerun()
-    with nav2:
-        if st.button("🌳 View Lineage Tree", use_container_width=True):
-            st.session_state.view_mode = "Lineage Tree"; st.rerun()
-
-    st.markdown("---")
-
-    # Search row: ❌ (left), text input (center), family tree button (right)
-    c1, c2, c3 = st.columns([0.08, 0.62, 0.30])
-    with c1:
-        st.markdown('<div class="home-clear">', unsafe_allow_html=True)
-        clear_clicked = st.button("❌", help="Clear search", key="home_clear_btn")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c2:
-        st.markdown('<div class="home-input">', unsafe_allow_html=True)
-        home_query = st.text_input("Search by Weight or Grower Last Name:", value=st.session_state.home_query, key="home_query")
-        st.markdown('</div>', unsafe_allow_html=True)
-    with c3:
-        st.markdown('<div class="home-go">', unsafe_allow_html=True)
-        go_tree = st.button("View Pumpkin Family Tree", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    # Clear behavior: clears only the text field; doesn't change selection
-    if clear_clicked:
-        st.session_state.home_query = ""
-        st.experimental_rerun()
-
-    # Build suggestions based on query
-    def match_query(name: str, q: str) -> bool:
-        if not q: return True
-        q = q.strip().lower()
-        if len(q) >= 3 and q.isdigit():
-            # weight prefix match (e.g., '236' -> finds 2365, 2365.5)
-            return name.lower().startswith(q)
-        return q in name.lower()
-
-    suggestions = [n for n in all_pumpkins if match_query(n, st.session_state.home_query)]
-    options = [""] + (suggestions if suggestions else all_pumpkins)
-
-    # Compute current index safely (default was set on first load)
-    current_value = st.session_state.home_select if st.session_state.home_select in options else st.session_state.selected_pumpkin if st.session_state.selected_pumpkin in options else ""
-    current_index = options.index(current_value)
-
-    # Selection dropdown just below the search row
-    selected = st.selectbox(
-        label="",
-        options=options,
-        index=current_index,
-        key="home_select",
-        placeholder="Select a pumpkin",
-    )
-
-    # Family Tree button goes straight to that view if we have a selection
-    if go_tree and selected:
-        st.session_state.selected_pumpkin = selected
-        st.session_state.view_mode = "Lineage Tree"
-        st.rerun()
-
-    # Persist selection
-    st.session_state.selected_pumpkin = selected
-
-    # Info card (unchanged)
-    if st.session_state.selected_pumpkin:
-        match_row = data[data["NAME"] == st.session_state.selected_pumpkin]
-        if not match_row.empty:
-            m = match_row.iloc[0]
-            info_html = f"""
-            <div class='info-card'>
-              <div class='info-grid'>
-                <div>
-                  <div class='metric'>Weight: <span class='muted'>{m['_w']} lbs</span></div>
-                  <div class='metric'>OTT: <span class='muted'>{m['_ott']}</span></div>
-                  <div class='metric'>% Heavy: <span class='muted'>{m['_heavy']}%</span></div>
-                </div>
-                <div>
-                  <div class='chip mother'><span class='tag'>Mother</span><span>{m['_m']}</span></div>
-                  <div class='chip father'><span class='tag'>Father</span><span>{m['_f']}</span></div>
-                </div>
-              </div>
-            </div>
-            """
-            st.markdown(info_html, unsafe_allow_html=True)
-
-    # Top 10 Biggest Pumpkins (styled like screenshot)
-    st.markdown("### Top 10 Biggest Pumpkins")
-    top10 = data.sort_values("_w", ascending=False).head(10).copy()
-    top10_view = top10[["NAME", "_w", "_m", "_f"]].rename(columns={
-        "NAME": "Pumpkin Name",
-        "_w": "Weight",
-        "_m": "Mother",
-        "_f": "Father",
-    })
-    # Render styled table
-    def render_home_top10(df: pd.DataFrame):
-        thead = "<thead><tr>" + "".join(f"<th>{c}</th>" for c in df.columns) + "</tr></thead>"
-        rows = []
-        for _, r in df.iterrows():
-            cells = "".join(f"<td>{r[c]}</td>" for c in df.columns)
-            rows.append(f"<tr>{cells}</tr>")
-        tbody = "<tbody>" + "".join(rows) + "</tbody>"
-        html = f"""
-        <div class="tbl-wrap">
-          <table class="tbl home-top10">
-            {thead}
-            {tbody}
-          </table>
-        </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
-
-    render_home_top10(top10_view)
-
-# ==================== PAGE: PROGENY SEARCH ====================
-elif st.session_state.view_mode == "Progeny Search":
+# ==================== PAGE: PROGENY SEARCH (stacked tables; Weight/Year_Grown removed) ====================
+if st.session_state.view_mode == "Progeny Search":
     st.title("🔍 Progeny Search & View")
     if st.button("✕ Clear Selection"):
         st.session_state.selected_pumpkin = ""; st.rerun()
-
     selected = st.selectbox(
         "Select Seed to View Progeny (Largest first)",
         options=[""] + all_pumpkins,
@@ -580,39 +409,25 @@ elif st.session_state.view_mode == "Progeny Search":
         if st.session_state.selected_pumpkin in all_pumpkins else 0,
     )
     st.session_state.selected_pumpkin = selected
-
     if st.session_state.selected_pumpkin:
         _, _, _, tid, _ = get_seed_identity(st.session_state.selected_pumpkin)
         p = raw_seed_db.get(tid, {"m": "Unknown", "f": "Unknown"})
         st.subheader(f"Progeny of {st.session_state.selected_pumpkin}")
-        st.markdown(f"Mother Seed: {p['m']}  \nFather Seed: {p['f']}", unsafe_allow_html=True)
-
+        st.markdown(f"Mother Seed: {p['m']} \nFather Seed: {p['f']}", unsafe_allow_html=True)
         if st.button("→ View Lineage Tree"):
             st.session_state.view_mode = "Lineage Tree"; st.rerun()
-
-        # --- Show only the desired columns; remove Weight and Year_Grown ---
+        # Show only desired columns; remove Weight and Year_Grown
         cols_to_show = ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]
-
-        # Build data views (filters unchanged, columns trimmed)
-        m_kids = (
-            df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show]
-            .sort_values("Pumpkin_Name", ascending=True)
-        )
-        f_kids = (
-            df_raw[df_raw["Father_Seed"] == st.session_state.selected_pumpkin][cols_to_show]
-            .sort_values("Pumpkin_Name", ascending=True)
-        )
-
-        # --- Vertical layout: Mother table first, Pollinator table below ---
+        m_kids = df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Pumpkin_Name", ascending=True)
+        f_kids = df_raw[df_raw["Father_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Pumpkin_Name", ascending=True)
         st.markdown("---")
         st.subheader("Offspring (Used as Mother)")
         st.dataframe(m_kids, hide_index=True, use_container_width=True)
-
         st.markdown("---")
         st.subheader("Offspring (Used as Pollinator)")
         st.dataframe(f_kids, hide_index=True, use_container_width=True)
 
-# ==================== PAGE: LINEAGE TREE ====================
+# ==================== PAGE: LINEAGE TREE (default landing page) ====================
 elif st.session_state.view_mode == "Lineage Tree":
     st.title("🌳 Genetic Lineage Tree")
     if st.button("✕ Clear Selection"):
@@ -624,6 +439,7 @@ elif st.session_state.view_mode == "Lineage Tree":
         if st.session_state.selected_pumpkin in all_pumpkins else 0,
     )
     st.session_state.selected_pumpkin = selected
+
     # --- SIDEBAR CONTROLS ---
     st.sidebar.markdown("### 🛠️ Tree Configuration")
     gens = st.sidebar.slider("Generations", 1, 6, 4)
@@ -813,7 +629,7 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
     cols_50 = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
     render_top50_table(top50_adv, cols_50, height_px=520)
 
-# ==================== PAGE: TOP 50 HEAVY PREDICTION (FULL HEIGHT + FALLBACK FILL, SAME VISUAL LAYOUT) ====================
+# ==================== PAGE: TOP 50 HEAVY PREDICTION (FULL HEIGHT + FALLBACK FILL) ====================
 elif st.session_state.view_mode == "Top 50 Heavy Prediction":
     st.title("🛡️ Top 50 Heavy Prediction")
     st.caption("Strongest seeds by conservative floor (MIN FLOOR). If fewer than 50 meet the MAX FLOOR threshold, we top up with the next best MIN FLOOR. Table uses the Top-50 visual layout and full height.")
