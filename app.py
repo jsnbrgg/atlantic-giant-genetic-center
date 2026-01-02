@@ -505,7 +505,7 @@ elif st.session_state.view_mode == "Home / Tree":
 
 # ==================== PAGE: TOP 50 GENETIC PREDICTION ====================
 elif st.session_state.view_mode == "Top 50 Genetic Prediction":
-    st.title("🏆 Top 50 Genetic Prediction (Genetic Potential)")
+    st.title("Genetic Prediction")
     render_top_nav()
     st.caption("This page computes the list independently to keep the Home page fast.")
 
@@ -621,7 +621,7 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
 
 # ==================== PAGE: TOP 50 HEAVY PREDICTION ====================
 elif st.session_state.view_mode == "Top 50 Heavy Prediction":
-    st.title("🛡️ Top 50 Heavy Prediction")
+    st.title("Heavy Prediction")
     render_top_nav()
     st.caption("Strongest seeds by conservative floor (MIN FLOOR). If fewer than 50 meet the MAX FLOOR threshold, we top up with the next best MIN FLOOR. Table uses the Top-50 visual layout and full height.")
 
