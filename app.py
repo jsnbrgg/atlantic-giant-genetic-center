@@ -37,9 +37,8 @@ def logout():
     st.rerun()
 
 def login_view():
-    # Updated title (removed "Sign in to")
+    # Title (cleaned)
     st.title("🔐 Atlantic Giant Genetic Center")
-    # Optional: minimal caption (you can remove entirely if you want)
     st.caption("Please enter your login details below.")
 
     col1, col2 = st.columns([0.6, 0.4])
@@ -291,10 +290,14 @@ def load_and_analyze():
 
 # ==================== APP INIT ====================
 data, all_pumpkins, raw_seed_db, df_raw = load_and_analyze()
+
 if "view_mode" not in st.session_state:
     st.session_state.view_mode = "Search & Home"
+
+# ✅ Default the home page selection to 2365 Wolf 2021 (first load only)
 if "selected_pumpkin" not in st.session_state:
-    st.session_state.selected_pumpkin = ""
+    st.session_state.selected_pumpkin = "2365 Wolf 2021" if "2365 Wolf 2021" in all_pumpkins else ""
+
 if "search_key" not in st.session_state:
     st.session_state.search_key = ""
 
@@ -311,15 +314,26 @@ st.markdown(
     .tree-node .name { font-weight: 700; margin-bottom: 4px; }
     .tree-node .line { margin-bottom: 2px; }
     .tree-connector { position: absolute; height: 2px; background: rgba(0,0,0,0.2); }
-    /* Search row alignment */
-    .search-flex { display: flex; flex-direction: row; align-items: center; gap: 10px; margin-bottom: 10px; }
+
+    /* --- HOME: Search row alignment (pure flex) --- */
+    .search-flex {
+      display: flex; flex-direction: row; align-items: center;
+      gap: 10px; margin-bottom: 10px;
+    }
     .search-flex .clear-btn .stButton > button {
       background: #2b2b2b; color: #ff4242; border: 1px solid #ff4242;
       border-radius: 8px; height: 40px; width: 40px; line-height: 24px; font-size: 20px;
       display: inline-flex; align-items: center; justify-content: center; padding: 0; margin: 0;
     }
-    .search-flex .search-box [data-testid="stSelectbox"] { width: 420px; min-width: 320px; max-width: 420px; }
-    .search-flex .search-box [data-testid="stSelectbox"] > div:first-child { height: 40px; }
+    /* ✅ Shorter selectbox width on Home page */
+    .search-flex .search-box [data-testid="stSelectbox"] {
+      width: 360px; min-width: 320px; max-width: 360px;
+    }
+    /* Match inner height to the button for perfect alignment */
+    .search-flex .search-box [data-testid="stSelectbox"] > div:first-child {
+      height: 40px;
+    }
+
     /* Info card styling */
     .info-card { border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); border-radius: 12px; padding: 14px 16px; margin-top: 10px; }
     .info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; align-items: start; }
@@ -331,6 +345,7 @@ st.markdown(
     .chip.mother .tag { background: #ffd54f; }
     .chip.father { background: rgba(79, 195, 247, 0.20); color: #80d8ff; }
     .chip.father .tag { background: #4fc3f7; }
+
     /* Generic table wrapper */
     .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.04); overflow: hidden; }
     /* Top-50 visual layout (shared by Prediction + Heavy Prediction pages) */
@@ -425,17 +440,17 @@ if st.session_state.view_mode == "Search & Home":
         if st.button("🌳 View Lineage Tree", use_container_width=True):
             st.session_state.view_mode = "Lineage Tree"; st.rerun()
     st.markdown("---")
-    # Search Row
+    # --- Search Row (pure flex: ❌ on the left, shorter box) ---
     container = st.container()
     with container:
         st.markdown('<div class="search-flex">', unsafe_allow_html=True)
+
+        # Left: ❌ clear button
         st.markdown('<div class="clear-btn">', unsafe_allow_html=True)
         clear_clicked = st.button("❌", key="clear_main")
         st.markdown('</div>', unsafe_allow_html=True)
-        if clear_clicked:
-            if "search_key" in st.session_state:
-                st.session_state["search_key"] = ""
-            st.session_state["selected_pumpkin"] = ""; st.rerun(); st.stop()
+
+        # Right: shortened selectbox (width controlled by CSS above)
         st.markdown('<div class="search-box">', unsafe_allow_html=True)
         selected = st.selectbox(
             label="",
@@ -446,8 +461,20 @@ if st.session_state.view_mode == "Search & Home":
             placeholder="Search or select a pumpkin (largest first)",
         )
         st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+
+        st.markdown('</div>', unsafe_allow_html=True)  # close .search-flex
+
+    # Clear behavior: leaves the field empty; does not override the default selection logic
+    if clear_clicked:
+        if "search_key" in st.session_state:
+            st.session_state["search_key"] = ""
+        st.session_state["selected_pumpkin"] = ""
+        st.rerun(); st.stop()
+
+    # Persist selection
     st.session_state.selected_pumpkin = selected
+
+    # Info card
     if st.session_state.selected_pumpkin:
         match_row = data[data["NAME"] == st.session_state.selected_pumpkin]
         if not match_row.empty:
@@ -733,3 +760,4 @@ elif st.session_state.view_mode == "Top 50 Heavy Prediction":
     heavy_pred.insert(0, "RANK", [f"#{i+1}" for i in range(len(heavy_pred))])
     cols_hp = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
     render_top50_table(heavy_pred, cols_hp, height_px=520)
+``
