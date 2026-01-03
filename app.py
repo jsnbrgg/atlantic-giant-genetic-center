@@ -109,7 +109,6 @@ auth_bar()
 import os
 import re
 import sqlite3
-import datetime
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -184,19 +183,24 @@ def get_seed_identity(s: str):
 
 @st.cache_data(ttl=3600)
 def load_and_analyze():
+    """Load DB, clean and compute metrics used across pages."""
+    import sqlite3
     conn = sqlite3.connect(DB_PATH)
     df = pd.read_sql_query(
         "SELECT Pumpkin_Name, Weight, Mother_Seed, Father_Seed, Percent_Heavy, OTT, Year_Grown FROM pumpkins",
         conn,
     )
     conn.close()
+    # Denoise name fields for consistent matching later
     for col in ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]:
         df[col] = df[col].apply(denoise_text)
     df["W_Num"] = pd.to_numeric(df["Weight"], errors="coerce")
     df["P_Num"] = pd.to_numeric(df["Percent_Heavy"], errors="coerce").fillna(0)
-    df_clean = df[(df["W_Num"] < WORLD_RECORD_LIMIT) & (df["P_Num"] <= HEAVY_SANITY_LIMIT)].copy()
 
+    # Filter unrealistic % Heavy > 25%
+    df_clean = df[(df["W_Num"] < WORLD_RECORD_LIMIT) & (df["P_Num"] <= HEAVY_SANITY_LIMIT)].copy()
     seed_db, progeny_map = {}, {}
+    # Build seed database + progeny mapping (canonical parents)
     for idx, row in df_clean.iterrows():
         w, _, _, id_key, pretty = get_seed_identity(row["Pumpkin_Name"])
         if id_key == "unknown_0":
@@ -213,10 +217,8 @@ def load_and_analyze():
         for p_raw in [row["Mother_Seed"], row["Father_Seed"]]:
             _, _, _, p_id, _ = get_seed_identity(p_raw)
             if p_id != "unknown_0":
-                progeny_map.setdefault(p_id, []).append({
-                    "w": df_clean.at[idx, "W_Num"], "p": df_clean.at[idx, "P_Num"]
-                })
-
+                progeny_map.setdefault(p_id, []).append({"w": df_clean.at[idx, "W_Num"], "p": df_clean.at[idx, "P_Num"]})
+    # Compute base metrics (used by pages)
     results = []
     for id_key, data_point in seed_db.items():
         kids = progeny_map.get(id_key, [])
@@ -230,7 +232,8 @@ def load_and_analyze():
         )
         heavy_p = (
             np.percentile([k["p"] for k in kids if k["w"] >= 2000], 75)
-            if elite else data_point["p"]
+            if elite
+            else data_point["p"]
         )
         score = (p_base * bonus) * (1 + (heavy_p / 100))
         max_v = max([k["w"] for k in kids] + [data_point["w"]]) if kids else data_point["w"]
@@ -261,7 +264,7 @@ def load_and_analyze():
 # ==================== APP INIT ====================
 data, all_pumpkins, raw_seed_db, df_raw = load_and_analyze()
 
-# Default landing page: Home / Tree (formerly Lineage Tree)
+# Default landing page: Home / Tree
 if "view_mode" not in st.session_state:
     st.session_state.view_mode = "Home / Tree"
 if "selected_pumpkin" not in st.session_state:
@@ -313,13 +316,10 @@ st.markdown(
 
 # ==================== SIDEBAR NAV (Home / Tree first; one-click) ====================
 st.sidebar.title("🧬 Navigation")
-nav_options = ["Home / Tree", "Progeny Search", "Top 50 Genetic Prediction", "Top 50 Heavy Prediction"]
+nav_options = ["Home / Tree", "Progeny Search", "Genetic Potential", "Heavy Potential"]
 
-# Sidebar reflects current view_mode by index (no widget-key writes)
 default_index = nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else 0
 choice = st.sidebar.radio("Go to", nav_options, index=default_index)
-
-# One-click behavior: update and rerun if changed
 if choice != st.session_state.view_mode:
     st.session_state.view_mode = choice
     st.rerun()
@@ -335,15 +335,15 @@ def render_top_nav():
         if st.button("🔍 Progeny Search", use_container_width=True, key="nav_btn_prog"):
             st.session_state.view_mode = "Progeny Search"; st.rerun()
     with b3:
-        if st.button("🏆 Top 50 Genetic", use_container_width=True, key="nav_btn_top50"):
-            st.session_state.view_mode = "Top 50 Genetic Prediction"; st.rerun()
+        if st.button("🏆 Genetic Potential", use_container_width=True, key="nav_btn_gen"):
+            st.session_state.view_mode = "Genetic Potential"; st.rerun()
     with b4:
-        if st.button("🛡️ Top 50 Heavy", use_container_width=True, key="nav_btn_heavy"):
-            st.session_state.view_mode = "Top 50 Heavy Prediction"; st.rerun()
+        if st.button("🛡️ Heavy Potential", use_container_width=True, key="nav_btn_heavy"):
+            st.session_state.view_mode = "Heavy Potential"; st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
 
-# ---------- Helper: generic table (scroll viewport; used by other pages) ----------
+# ---------- Helper: generic table (scroll viewport; used by pages) ----------
 def render_pretty_table(df: pd.DataFrame, columns: list[str], height_px: int = 420, table_class: str = ""):
     view = df[columns].copy()
     thead = "<thead><tr>" + "".join(f"<th>{col}</th>" for col in view.columns) + "</tr></thead>"
@@ -394,7 +394,7 @@ def render_top50_table(df: pd.DataFrame, columns: list[str], height_px: int = 42
     """
     st.markdown(html, unsafe_allow_html=True)
 
-# ==================== PAGE: PROGENY SEARCH (stacked tables; Weight/Year_Grown removed) ====================
+# ==================== PAGE: PROGENY SEARCH (unchanged logic/layout) ====================
 if st.session_state.view_mode == "Progeny Search":
     st.title("🔍 Progeny")
     render_top_nav()
@@ -412,7 +412,7 @@ if st.session_state.view_mode == "Progeny Search":
         _, _, _, tid, _ = get_seed_identity(st.session_state.selected_pumpkin)
         p = raw_seed_db.get(tid, {"m": "Unknown", "f": "Unknown"})
         st.subheader(f"Progeny of {st.session_state.selected_pumpkin}")
-        st.markdown(f"Mother Seed: {p['m']} \nFather Seed: {p['f']}", unsafe_allow_html=True)
+        st.markdown(f"Mother Seed: {p['m']}  \nFather Seed: {p['f']}", unsafe_allow_html=True)
         if st.button("→ View Lineage Tree"):
             st.session_state.view_mode = "Home / Tree"; st.rerun()
         cols_to_show = ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]
@@ -440,7 +440,7 @@ elif st.session_state.view_mode == "Home / Tree":
     )
     st.session_state.selected_pumpkin = selected
 
-    # --- SIDEBAR CONTROLS ---
+    # --- SIDEBAR CONTROLS (existing) ---
     st.sidebar.markdown("### 🛠️ Tree Configuration")
     gens = st.sidebar.slider("Generations", 1, 6, 4)
     st.sidebar.markdown("### 📊 Data to Include")
@@ -503,79 +503,113 @@ elif st.session_state.view_mode == "Home / Tree":
         html += "</div>"
         st.markdown(html, unsafe_allow_html=True)
 
-# ==================== PAGE: TOP 50 GENETIC PREDICTION (with sidebar controls) ====================
-elif st.session_state.view_mode == "Top 50 Genetic Prediction":
-    st.title("Genetic Prediction")
+# ==================== PAGE: GENETIC POTENTIAL (with sidebar controls + Reset) ====================
+elif st.session_state.view_mode == "Genetic Potential":
+    st.title("Genetic Potential")
     render_top_nav()
     st.caption("Tune the model inputs on the sidebar. Defaults match your current configuration.")
 
-    # === BASE: prepare data (unchanged canonicalization & sanity filter) ===
+    # --- Defaults & reset handling (scoped to Genetic Potential) ---
+    gen_defaults = {
+        "gen_sr_world_record": int(WORLD_RECORD_LIMIT),
+        "gen_sr_heavy_limit": int(HEAVY_SANITY_LIMIT),
+        "gen_th_elite": 2000,
+        "gen_th_super": 2500,
+        "gen_th_mega": 2700,
+        "gen_base_weight": 2500,
+        "gen_clamp_min": 0.60,
+        "gen_clamp_max": 1.40,
+        "gen_use_ott_norm": True,
+        "gen_ott_min_ratio": 0.85,
+        "gen_ott_max_ratio": 1.20,
+        "gen_coef_mega": 0.18,
+        "gen_coef_super": 0.12,
+        "gen_coef_elite": 0.10,
+        "gen_use_heavy_power": True,
+        "gen_coef_heavy_rate": 0.10,
+        "gen_coef_heavy_count": 0.06,
+        "gen_coef_heavy_fallback": 0.03,
+        "gen_use_pb_power": True,
+        "gen_coef_pb_kids": 0.08,
+        "gen_bonus_pb_flag": 0.05,
+        "gen_use_consistency": True,
+        "gen_coef_consistency": 0.06,
+        "gen_use_top_mean": True,
+        "gen_top_mean_max_gain": 0.12,
+        "gen_top_mean_base": 2500,
+        "gen_name_filter": "",
+        "gen_top_n_choice": 10,  # default to 10
+    }
+    # initialize once
+    if "gen_initialized" not in st.session_state:
+        st.session_state.gen_initialized = True
+        for k, v in gen_defaults.items():
+            st.session_state.setdefault(k, v)
+
+    # === BASE data ===
     df_fast = df_raw.copy()
     for col in ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]:
         df_fast[col] = df_fast[col].apply(denoise_text)
-    # Note: we keep HEAVY_SANITY_LIMIT/WORLD_RECORD_LIMIT defaults; allow override below
     df_fast["W_Num"] = pd.to_numeric(df_fast["Weight"], errors="coerce")
     df_fast["P_Num"] = pd.to_numeric(df_fast["Percent_Heavy"], errors="coerce").fillna(0)
 
-    # === SIDEBAR: model controls (professional, grouped & defaults to existing behavior) ===
+    # === SIDEBAR widgets (bound to keys) ===
     st.sidebar.markdown("### ⚙️ Genetic Potential Options")
 
-    st.sidebar.markdown("#### Data & Filtering")
-    sr_world_record = st.sidebar.slider("World record limit (lbs)", 2500, 4000, int(WORLD_RECORD_LIMIT), step=50)
-    sr_heavy_limit = st.sidebar.slider("Max allowed % Heavy (sanity filter)", 0, 40, int(HEAVY_SANITY_LIMIT), step=1)
+    sr_world_record = st.sidebar.slider("World record limit (lbs)", 2500, 4000, st.session_state.gen_sr_world_record, step=50, key="gen_sr_world_record")
+    sr_heavy_limit = st.sidebar.slider("Max allowed % Heavy (sanity filter)", 0, 40, st.session_state.gen_sr_heavy_limit, step=1, key="gen_sr_heavy_limit")
     # Apply filters with chosen limits
     df_fast = df_fast[(df_fast["W_Num"] < sr_world_record) & (df_fast["P_Num"] <= sr_heavy_limit)].copy()
 
     st.sidebar.markdown("#### Offspring thresholds")
-    th_elite = st.sidebar.slider("Elite threshold (lbs)", 1500, 3000, 2000, step=50)
-    th_super = st.sidebar.slider("Super threshold (lbs)", 2000, 3200, 2500, step=50)
-    th_mega  = st.sidebar.slider("Mega threshold (lbs)", 2300, 3400, 2700, step=50)
+    th_elite = st.sidebar.slider("Elite threshold (lbs)", 1500, 3000, st.session_state.gen_th_elite, step=50, key="gen_th_elite")
+    th_super = st.sidebar.slider("Super threshold (lbs)", 2000, 3200, st.session_state.gen_th_super, step=50, key="gen_th_super")
+    th_mega  = st.sidebar.slider("Mega threshold (lbs)", 2300, 3400, st.session_state.gen_th_mega, step=50, key="gen_th_mega")
 
     st.sidebar.markdown("#### Weight normalization")
-    base_weight = st.sidebar.slider("Normalization base (lbs)", 2000, 3000, 2500, step=50)
-    clamp_min   = st.sidebar.slider("Min clamp", 0.3, 1.0, 0.6, 0.01)
-    clamp_max   = st.sidebar.slider("Max clamp", 1.0, 2.0, 1.4, 0.01)
+    base_weight = st.sidebar.slider("Normalization base (lbs)", 2000, 3000, st.session_state.gen_base_weight, step=50, key="gen_base_weight")
+    clamp_min   = st.sidebar.slider("Min clamp", 0.3, 1.0, st.session_state.gen_clamp_min, 0.01, key="gen_clamp_min")
+    clamp_max   = st.sidebar.slider("Max clamp", 1.0, 2.0, st.session_state.gen_clamp_max, 0.01, key="gen_clamp_max")
 
     st.sidebar.markdown("#### OTT normalization")
-    use_ott_norm = st.sidebar.checkbox("Use OTT normalization", value=True)
-    ott_min_ratio = st.sidebar.slider("OTT ratio lower clamp", 0.5, 1.0, 0.85, 0.01)
-    ott_max_ratio = st.sidebar.slider("OTT ratio upper clamp", 1.0, 1.8, 1.20, 0.01)
+    use_ott_norm = st.sidebar.checkbox("Use OTT normalization", value=st.session_state.gen_use_ott_norm, key="gen_use_ott_norm")
+    ott_min_ratio = st.sidebar.slider("OTT ratio lower clamp", 0.5, 1.0, st.session_state.gen_ott_min_ratio, 0.01, key="gen_ott_min_ratio")
+    ott_max_ratio = st.sidebar.slider("OTT ratio upper clamp", 1.0, 1.8, st.session_state.gen_ott_max_ratio, 0.01, key="gen_ott_max_ratio")
 
     st.sidebar.markdown("#### Offspring power weights")
-    coef_mega  = st.sidebar.slider("Weight for Mega count (log1p * coef)", 0.00, 0.40, 0.18, 0.01)
-    coef_super = st.sidebar.slider("Weight for Super count (log1p * coef)", 0.00, 0.30, 0.12, 0.01)
-    coef_elite = st.sidebar.slider("Weight for Elite count (log1p * coef)", 0.00, 0.30, 0.10, 0.01)
+    coef_mega  = st.sidebar.slider("Weight for Mega count (log1p * coef)", 0.00, 0.40, st.session_state.gen_coef_mega, 0.01, key="gen_coef_mega")
+    coef_super = st.sidebar.slider("Weight for Super count (log1p * coef)", 0.00, 0.30, st.session_state.gen_coef_super, 0.01, key="gen_coef_super")
+    coef_elite = st.sidebar.slider("Weight for Elite count (log1p * coef)", 0.00, 0.30, st.session_state.gen_coef_elite, 0.01, key="gen_coef_elite")
 
     st.sidebar.markdown("#### Heavy power")
-    use_heavy_power = st.sidebar.checkbox("Use heavy-rate influence", value=True)
-    coef_heavy_rate   = st.sidebar.slider("Weight for heavy_rate", 0.00, 0.20, 0.10, 0.01)
-    coef_heavy_count  = st.sidebar.slider("Weight for high heavy count", 0.00, 0.20, 0.06, 0.01)
-    coef_heavy_fallback = st.sidebar.slider("Fallback weight (no kids → heavy_rate)", 0.00, 0.20, 0.03, 0.01)
+    use_heavy_power = st.sidebar.checkbox("Use heavy-rate influence", value=st.session_state.gen_use_heavy_power, key="gen_use_heavy_power")
+    coef_heavy_rate   = st.sidebar.slider("Weight for heavy_rate", 0.00, 0.20, st.session_state.gen_coef_heavy_rate, 0.01, key="gen_coef_heavy_rate")
+    coef_heavy_count  = st.sidebar.slider("Weight for high heavy count", 0.00, 0.20, st.session_state.gen_coef_heavy_count, 0.01, key="gen_coef_heavy_count")
+    coef_heavy_fallback = st.sidebar.slider("Fallback weight (no kids → heavy_rate)", 0.00, 0.20, st.session_state.gen_coef_heavy_fallback, 0.01, key="gen_coef_heavy_fallback")
 
     st.sidebar.markdown("#### PB power")
-    use_pb_power = st.sidebar.checkbox("Use PB influence", value=True)
-    coef_pb_kids = st.sidebar.slider("Weight for PB kids rate", 0.00, 0.20, 0.08, 0.01)
-    bonus_pb_flag = st.sidebar.slider("Bonus if seed is grower PB", 0.00, 0.20, 0.05, 0.01)
+    use_pb_power = st.sidebar.checkbox("Use PB influence", value=st.session_state.gen_use_pb_power, key="gen_use_pb_power")
+    coef_pb_kids = st.sidebar.slider("Weight for PB kids rate", 0.00, 0.20, st.session_state.gen_coef_pb_kids, 0.01, key="gen_coef_pb_kids")
+    bonus_pb_flag = st.sidebar.slider("Bonus if seed is grower PB", 0.00, 0.20, st.session_state.gen_bonus_pb_flag, 0.01, key="gen_bonus_pb_flag")
 
     st.sidebar.markdown("#### Consistency & top-mean factors")
-    use_consistency = st.sidebar.checkbox("Use consistency factor (p75 heavy)", value=True)
-    coef_consistency = st.sidebar.slider("Gain per p75 (% / 100)", 0.00, 0.15, 0.06, 0.01)
-    use_top_mean = st.sidebar.checkbox("Use top-mean factor", value=True)
-    top_mean_max_gain = st.sidebar.slider("Max gain from top-mean", 0.00, 0.30, 0.12, 0.01)
-    top_mean_base = st.sidebar.slider("Top-mean base (lbs)", 2000, 3000, 2500, 50)
-
-    st.sidebar.markdown("#### Diversity & novelty")
-    use_diversity = st.sidebar.checkbox("Use diversity factor", value=True)
-    penalty_same = st.sidebar.slider("Penalty if same parent/grower", 0.80, 1.00, 0.95, 0.01)
-    bonus_diverse = st.sidebar.slider("Bonus if different parent/grower", 1.00, 1.20, 1.03, 0.01)
-    use_novelty = st.sidebar.checkbox("Use novelty factor (no kids yet)", value=True)
-    novelty_penalty = st.sidebar.slider("Novelty multiplier (no kids → penalty)", 0.80, 1.00, 0.92, 0.01)
+    use_consistency = st.sidebar.checkbox("Use consistency factor (p75 heavy)", value=st.session_state.gen_use_consistency, key="gen_use_consistency")
+    coef_consistency = st.sidebar.slider("Gain per p75 (% / 100)", 0.00, 0.15, st.session_state.gen_coef_consistency, 0.01, key="gen_coef_consistency")
+    use_top_mean = st.sidebar.checkbox("Use top-mean factor", value=st.session_state.gen_use_top_mean, key="gen_use_top_mean")
+    top_mean_max_gain = st.sidebar.slider("Max gain from top-mean", 0.00, 0.30, st.session_state.gen_top_mean_max_gain, 0.01, key="gen_top_mean_max_gain")
+    top_mean_base = st.sidebar.slider("Top-mean base (lbs)", 2000, 3000, st.session_state.gen_top_mean_base, 50, key="gen_top_mean_base")
 
     st.sidebar.markdown("#### Display")
-    name_filter = st.sidebar.text_input("Filter by seed name (contains)", "")
-    top_n = st.sidebar.slider("Top N to show", 10, 100, 50, 5)
+    name_filter = st.sidebar.text_input("Filter by seed name (contains)", st.session_state.gen_name_filter, key="gen_name_filter")
+    top_n_choice = st.sidebar.selectbox("Results to show", [10, 20, 30, 40, 50], index=[10,20,30,40,50].index(st.session_state.gen_top_n_choice), key="gen_top_n_choice")
 
-    # === Derive helper sets (unchanged) ===
+    # Reset button
+    if st.sidebar.button("Reset to defaults", key="gen_reset_btn"):
+        for k, v in gen_defaults.items():
+            st.session_state[k] = v
+        st.rerun()
+
+    # === Derive helper sets (unchanged base) ===
     df_fast["grower"] = df_fast["Pumpkin_Name"].apply(lambda s: get_seed_identity(s)[1])
     grower_pb_map = df_fast.groupby("grower")["W_Num"].max().to_dict()
     kid_pb_set = set()
@@ -605,10 +639,10 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
         _, mg, _, mid, _ = get_seed_identity(m_name)
         _, fg, _, fid, _ = get_seed_identity(f_name)
         if mid == fid or mg == fg:
-            return penalty_same if use_diversity else 1.0
+            return 0.95
         if mg != fg and mid != fid and mg != "unknown" and fg != "unknown":
-            return bonus_diverse if use_diversity else 1.0
-        return 1.0
+            return 1.03
+        return 1.00
 
     # === Advanced score using sidebar controls ===
     def advanced_score(seed_row: pd.Series) -> float:
@@ -624,7 +658,7 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
         # Base components (own traits)
         own_w_norm = np.clip(min(w, sr_world_record) / float(base_weight), clamp_min, clamp_max)
         if use_ott_norm and global_ott_med and not np.isnan(ott):
-            ott_norm = np.clip(ott / global_ott_med, ott_min_ratio, ott_max_ratio)
+            ott_norm = np.clip(ott / global_ott_med, float(st.session_state.gen_ott_min_ratio), float(st.session_state.gen_ott_max_ratio))
         else:
             ott_norm = 1.0
         heavy_norm = 1.0 + max(0.0, heavy_seed) / 100.0 * 0.40  # keep original seed-heavy contribution
@@ -678,7 +712,6 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
 
         # Assemble factors
         score_base = own_w_norm * ott_norm * heavy_norm
-
         offspring_power = 1.0 + coef_mega*np.log1p(c_mega) + coef_super*np.log1p(c_super) + coef_elite*np.log1p(c_elite)
 
         if use_heavy_power:
@@ -689,24 +722,23 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
             heavy_power = 1.0
 
         if use_pb_power:
-            pb_kids_rate = pb_kids_rate if kcnt > 0 else 0.0
-            pb_power = 1.0 + (coef_pb_kids*pb_kids_rate if kcnt > 0 else 0.0) + (bonus_pb_flag if pb_flag > 0 else 0.0)
+            pb_kids_rate_val = (pb_kids_rate if kcnt > 0 else 0.0)
+            pb_power = 1.0 + (coef_pb_kids*pb_kids_rate_val) + (bonus_pb_flag if pb_flag > 0 else 0.0)
         else:
             pb_power = 1.0
 
         if use_consistency:
-            consistency = 1.0 + coef_consistency*(heavy_p75/100.0)
+            consistency = 1.0 + (st.session_state.gen_coef_consistency)*(heavy_p75/100.0)
         else:
             consistency = 1.0
 
         if use_top_mean:
-            top_mean_factor = 1.0 + min(top_mean_max_gain, (top_mean/float(top_mean_base))*top_mean_max_gain)
+            top_mean_factor = 1.0 + min(st.session_state.gen_top_mean_max_gain, (top_mean/float(st.session_state.gen_top_mean_base))*st.session_state.gen_top_mean_max_gain)
         else:
             top_mean_factor = 1.0
 
         div_factor = diversity_factor(seed_row["_m"], seed_row["_f"]) if (seed_row["_m"] and seed_row["_f"]) else 1.0
-
-        novelty = (novelty_penalty if kcnt == 0 else 1.0) if use_novelty else 1.0
+        novelty = 0.92 if kcnt == 0 else 1.0
 
         return float(1000.0 * score_base * offspring_power * heavy_power * pb_power * consistency * top_mean_factor * div_factor * novelty)
 
@@ -718,26 +750,71 @@ elif st.session_state.view_mode == "Top 50 Genetic Prediction":
     if name_filter.strip():
         advanced = advanced[advanced["NAME"].str.contains(name_filter.strip(), case=False, na=False)]
 
-    topN = advanced.sort_values("GP_SCORE", ascending=False).head(top_n).copy()
+    topN = advanced.sort_values("GP_SCORE", ascending=False).head(int(top_n_choice)).copy()
     topN.insert(0, "RANK", [f"#{i+1}" for i in range(len(topN))])
 
     cols_50 = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
     render_top50_table(topN, cols_50, height_px=520)
 
-# ==================== PAGE: TOP 50 HEAVY PREDICTION (unchanged) ====================
-elif st.session_state.view_mode == "Top 50 Heavy Prediction":
-    st.title("Heavy Prediction")
+# ==================== PAGE: HEAVY POTENTIAL (with sidebar controls + Reset) ====================
+elif st.session_state.view_mode == "Heavy Potential":
+    st.title("Heavy Potential")
     render_top_nav()
-    st.caption("Strongest seeds by conservative floor (MIN FLOOR). If fewer than 50 meet the MAX FLOOR threshold, we top up with the next best MIN FLOOR. Table uses the Top-50 visual layout and full height.")
+    st.caption("Tune the heavy-page filters in the sidebar. Defaults match your current configuration.")
 
-    qualified = data[data["MAX FLOOR"] >= MIN_FLOOR_QUALIFIER_CEILING].copy()
-    qualified = qualified.sort_values("MIN FLOOR", ascending=False)
-    if len(qualified) < 50:
-        remainder = data[~data.index.isin(qualified.index)].copy()
-        remainder = remainder.sort_values("MIN FLOOR", ascending=False)
-        heavy_pred = pd.concat([qualified, remainder.head(50 - len(qualified))], ignore_index=True)
+    # --- Defaults & reset handling (scoped to Heavy Potential) ---
+    heavy_defaults = {
+        "heavy_name_filter": "",
+        "heavy_min_elite": 0,
+        "heavy_qualifier": int(MIN_FLOOR_QUALIFIER_CEILING),
+        "heavy_sort_by": "MIN FLOOR",      # options: MIN FLOOR / MAX FLOOR
+        "heavy_use_topup": True,
+        "heavy_top_n": 10,                 # default to 10
+    }
+    if "heavy_initialized" not in st.session_state:
+        st.session_state.heavy_initialized = True
+        for k, v in heavy_defaults.items():
+            st.session_state.setdefault(k, v)
+
+    # Sidebar controls
+    st.sidebar.markdown("### ⚙️ Heavy Potential Options")
+    name_filter_h = st.sidebar.text_input("Filter by seed name (contains)", st.session_state.heavy_name_filter, key="heavy_name_filter")
+    min_elite = st.sidebar.slider("Minimum ELITE count", 0, 10, st.session_state.heavy_min_elite, key="heavy_min_elite")
+    qualifier = st.sidebar.slider("Qualifier threshold (MAX FLOOR, lbs)", 2000, 3500, st.session_state.heavy_qualifier, step=50, key="heavy_qualifier")
+    sort_by = st.sidebar.radio("Sort by metric", ["MIN FLOOR", "MAX FLOOR"], index=["MIN FLOOR","MAX FLOOR"].index(st.session_state.heavy_sort_by), key="heavy_sort_by")
+    use_topup = st.sidebar.checkbox("Top-up results if fewer than Top N meet the threshold", value=st.session_state.heavy_use_topup, key="heavy_use_topup")
+    top_n_heavy = st.sidebar.selectbox("Results to show", [10, 20, 30], index=[10,20,30].index(st.session_state.heavy_top_n), key="heavy_top_n")
+
+    # Reset button
+    if st.sidebar.button("Reset to defaults", key="heavy_reset_btn"):
+        for k, v in heavy_defaults.items():
+            st.session_state[k] = v
+        st.rerun()
+
+    # === Base data (unchanged) ===
+    base_df = data.copy()
+
+    # Apply name filter
+    if name_filter_h.strip():
+        base_df = base_df[base_df["NAME"].str.contains(name_filter_h.strip(), case=False, na=False)]
+
+    # Apply minimum ELITE filter
+    if int(min_elite) > 0:
+        base_df = base_df[base_df["ELITE"] >= int(min_elite)]
+
+    # Filter by qualifier (MAX FLOOR)
+    qualified = base_df[base_df["MAX FLOOR"] >= int(qualifier)].copy()
+    qualified = qualified.sort_values(sort_by, ascending=False)
+
+    # Top-up behavior
+    desired_n = int(top_n_heavy)
+    if use_topup and len(qualified) < desired_n:
+        remainder = base_df[~base_df.index.isin(qualified.index)].copy()
+        remainder = remainder.sort_values(sort_by, ascending=False)
+        heavy_pred = pd.concat([qualified, remainder.head(desired_n - len(qualified))], ignore_index=True)
+        heavy_pred = heavy_pred.sort_values(sort_by, ascending=False).head(desired_n).copy()
     else:
-        heavy_pred = qualified.head(50).copy()
+        heavy_pred = qualified.head(desired_n).copy()
 
     heavy_pred.insert(0, "RANK", [f"#{i+1}" for i in range(len(heavy_pred))])
     cols_hp = ["RANK", "NAME", "ELITE", "SUPER", "MEGA", "GAINS", "HEAVY %", "MIN FLOOR", "MAX FLOOR"]
