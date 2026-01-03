@@ -38,7 +38,7 @@ def logout():
 
 def login_view():
     # Title (cleaned)
-    st.title("ðŸ” Atlantic Giant Genetic Center")
+    st.title("🔐 Atlantic Giant Genetic Center")
     st.caption("Please enter your login details below.")
 
     col1, col2 = st.columns([0.6, 0.4])
@@ -73,7 +73,7 @@ def login_view():
                 st.error("Incorrect password")
                 return
 
-            # Success â†’ set session and rerun
+            # Success → set session and rerun
             st.session_state.auth_user = {
                 "username": actual_uname,
                 "email": user.get("email", ""),
@@ -92,7 +92,7 @@ def auth_bar():
         return
     left, right = st.columns([0.8, 0.2])
     with left:
-        st.write(f"**Signed in:** {u['username']} Â· *{u.get('role','viewer').capitalize()}*")
+        st.write(f"**Signed in:** {u['username']} · *{u.get('role','viewer').capitalize()}*")
     with right:
         st.button("Log out", on_click=logout)
 
@@ -101,7 +101,7 @@ if not st.session_state.auth_user:
     login_view()
     st.stop()
 
-# If here â†’ logged in
+# If here → logged in
 auth_bar()
 # --- END LOGIN GATE ---
 
@@ -287,7 +287,7 @@ st.markdown(
     .tree-node .line { margin-bottom: 2px; }
     .tree-connector { position: absolute; height: 2px; background: rgba(0,0,0,0.2); }
 
-    /* Generic table wrapper â€” horizontal scroll on phones */
+    /* Generic table wrapper — horizontal scroll on phones */
     .tbl-wrap { width: 100%; max-width: 100%; border-radius: 10px; border: 1px solid rgba(255,255,255,0.12);
                 background: rgba(255,255,255,0.04); overflow-x: auto; overflow-y: hidden; }
 
@@ -315,7 +315,7 @@ st.markdown(
 )
 
 # ==================== SIDEBAR NAV (Home / Tree first; one-click) ====================
-st.sidebar.title("ðŸ§¬ Navigation")
+st.sidebar.title("🧬 Navigation")
 nav_options = ["Home / Tree", "Progeny Search", "Genetic Potential", "Heavy Potential"]
 
 default_index = nav_options.index(st.session_state.view_mode) if st.session_state.view_mode in nav_options else 0
@@ -329,16 +329,16 @@ def render_top_nav():
     st.markdown('<div class="global-topnav">', unsafe_allow_html=True)
     b1, b2, b3, b4 = st.columns(4)
     with b1:
-        if st.button("ðŸ  Home / Tree", use_container_width=True, key="nav_btn_home"):
+        if st.button("🏠 Home / Tree", use_container_width=True, key="nav_btn_home"):
             st.session_state.view_mode = "Home / Tree"; st.rerun()
     with b2:
-        if st.button("ðŸ” Progeny Search", use_container_width=True, key="nav_btn_prog"):
+        if st.button("🔍 Progeny Search", use_container_width=True, key="nav_btn_prog"):
             st.session_state.view_mode = "Progeny Search"; st.rerun()
     with b3:
-        if st.button("ðŸ† Genetic Potential", use_container_width=True, key="nav_btn_gen"):
+        if st.button("🏆 Genetic Potential", use_container_width=True, key="nav_btn_gen"):
             st.session_state.view_mode = "Genetic Potential"; st.rerun()
     with b4:
-        if st.button("ðŸ›¡ï¸ Heavy Potential", use_container_width=True, key="nav_btn_heavy"):
+        if st.button("🛡️ Heavy Potential", use_container_width=True, key="nav_btn_heavy"):
             st.session_state.view_mode = "Heavy Potential"; st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("---")
@@ -396,10 +396,10 @@ def render_top50_table(df: pd.DataFrame, columns: list[str], height_px: int = 42
 
 # ==================== PAGE: PROGENY SEARCH (unchanged logic/layout) ====================
 if st.session_state.view_mode == "Progeny Search":
-    st.title("ðŸ” Progeny")
+    st.title("🔍 Progeny")
     render_top_nav()
 
-    if st.button("âœ• Clear Selection"):
+    if st.button("✕ Clear Selection"):
         st.session_state.selected_pumpkin = ""; st.rerun()
     selected = st.selectbox(
         "Select Seed to View Progeny (Largest first)",
@@ -413,7 +413,7 @@ if st.session_state.view_mode == "Progeny Search":
         p = raw_seed_db.get(tid, {"m": "Unknown", "f": "Unknown"})
         st.subheader(f"Progeny of {st.session_state.selected_pumpkin}")
         st.markdown(f"Mother Seed: {p['m']}  \nFather Seed: {p['f']}", unsafe_allow_html=True)
-        if st.button("â†’ View Lineage Tree"):
+        if st.button("→ View Lineage Tree"):
             st.session_state.view_mode = "Home / Tree"; st.rerun()
         cols_to_show = ["Pumpkin_Name", "Mother_Seed", "Father_Seed"]
         m_kids = df_raw[df_raw["Mother_Seed"] == st.session_state.selected_pumpkin][cols_to_show].sort_values("Pumpkin_Name", ascending=True)
@@ -427,10 +427,10 @@ if st.session_state.view_mode == "Progeny Search":
 
 # ==================== PAGE: HOME / TREE (formerly Lineage Tree) ====================
 elif st.session_state.view_mode == "Home / Tree":
-    st.title("ðŸŒ³ Tree")
+    st.title("🌳 Tree")
     render_top_nav()
 
-    if st.button("âœ• Clear Selection"):
+    if st.button("✕ Clear Selection"):
         st.session_state.selected_pumpkin = ""; st.rerun()
     selected = st.selectbox(
         "Select Seed for Pedigree (Largest first)",
@@ -441,14 +441,14 @@ elif st.session_state.view_mode == "Home / Tree":
     st.session_state.selected_pumpkin = selected
 
     # --- SIDEBAR CONTROLS (existing) ---
-    st.sidebar.markdown("### ðŸ› ï¸ Tree Configuration")
+    st.sidebar.markdown("### 🛠️ Tree Configuration")
     gens = st.sidebar.slider("Generations", 1, 6, 4)
-    st.sidebar.markdown("### ðŸ“Š Data to Include")
+    st.sidebar.markdown("### 📊 Data to Include")
     inc_w = st.sidebar.checkbox("Weight", value=False)
     inc_heavy = st.sidebar.checkbox("% Heavy", value=True)
     inc_ott = st.sidebar.checkbox("OTT", value=True)
     inc_year = st.sidebar.checkbox("Year Grown", value=False)
-    st.sidebar.markdown("### ðŸ“ Layout Controls")
+    st.sidebar.markdown("### 📐 Layout Controls")
     tw = st.sidebar.slider("Box Width", 100, 300, 190)
     th = st.sidebar.slider("Box Height", 60, 200, 110)
     h_space = st.sidebar.slider("Horizontal Spacing", 20, 140, 60)
@@ -459,7 +459,7 @@ elif st.session_state.view_mode == "Home / Tree":
 
     if st.session_state.selected_pumpkin:
         st.subheader(f"Pedigree: {st.session_state.selected_pumpkin}")
-        if st.button("ðŸ‘¥ View Progeny"):
+        if st.button("👥 View Progeny"):
             st.session_state.view_mode = "Progeny Search"; st.rerun()
 
         nodes = []
@@ -554,7 +554,7 @@ elif st.session_state.view_mode == "Genetic Potential":
     df_fast["P_Num"] = pd.to_numeric(df_fast["Percent_Heavy"], errors="coerce").fillna(0)
 
     # === SIDEBAR widgets (bound to keys) ===
-    st.sidebar.markdown("### âš™ï¸ Genetic Potential Options")
+    st.sidebar.markdown("### ⚙️ Genetic Potential Options")
 
     sr_world_record = st.sidebar.slider("World record limit (lbs)", 2500, 4000, st.session_state.gen_sr_world_record, step=50, key="gen_sr_world_record")
     sr_heavy_limit = st.sidebar.slider("Max allowed % Heavy (sanity filter)", 0, 40, st.session_state.gen_sr_heavy_limit, step=1, key="gen_sr_heavy_limit")
@@ -585,7 +585,7 @@ elif st.session_state.view_mode == "Genetic Potential":
     use_heavy_power = st.sidebar.checkbox("Use heavy-rate influence", value=st.session_state.gen_use_heavy_power, key="gen_use_heavy_power")
     coef_heavy_rate   = st.sidebar.slider("Weight for heavy_rate", 0.00, 0.20, st.session_state.gen_coef_heavy_rate, 0.01, key="gen_coef_heavy_rate")
     coef_heavy_count  = st.sidebar.slider("Weight for high heavy count", 0.00, 0.20, st.session_state.gen_coef_heavy_count, 0.01, key="gen_coef_heavy_count")
-    coef_heavy_fallback = st.sidebar.slider("Fallback weight (no kids â†’ heavy_rate)", 0.00, 0.20, st.session_state.gen_coef_heavy_fallback, 0.01, key="gen_coef_heavy_fallback")
+    coef_heavy_fallback = st.sidebar.slider("Fallback weight (no kids → heavy_rate)", 0.00, 0.20, st.session_state.gen_coef_heavy_fallback, 0.01, key="gen_coef_heavy_fallback")
 
     st.sidebar.markdown("#### PB power")
     use_pb_power = st.sidebar.checkbox("Use PB influence", value=st.session_state.gen_use_pb_power, key="gen_use_pb_power")
@@ -777,7 +777,7 @@ elif st.session_state.view_mode == "Heavy Potential":
             st.session_state.setdefault(k, v)
 
     # Sidebar controls
-    st.sidebar.markdown("### âš™ï¸ Heavy Potential Options")
+    st.sidebar.markdown("### ⚙️ Heavy Potential Options")
     name_filter_h = st.sidebar.text_input("Filter by seed name (contains)", st.session_state.heavy_name_filter, key="heavy_name_filter")
     min_elite = st.sidebar.slider("Minimum ELITE count", 0, 10, st.session_state.heavy_min_elite, key="heavy_min_elite")
     qualifier = st.sidebar.slider("Qualifier threshold (MAX FLOOR, lbs)", 2000, 3500, st.session_state.heavy_qualifier, step=50, key="heavy_qualifier")
